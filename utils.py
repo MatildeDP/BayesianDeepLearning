@@ -3,11 +3,8 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import torch
-import torch.nn as nn
 from copy import deepcopy
-from Model import Test, Train
-from Data import DataLoaderInput
-from torch.utils.data import DataLoader
+from scipy.linalg import fractional_matrix_power
 
 
 def save_net(path, model):
@@ -69,7 +66,7 @@ def plot_acc_and_loss(testloss, trainloss, accuracy):
     plt.show()
 
 
-def plot_decision_boundary(model, X, y, title=""):
+def plot_decision_boundary(model, X, y, thetaSWA = 0, Sigma_vec = 0, D_hat = 0,title="", predict_func = 'predict'):
     # Set min and max values and give it some padding
     x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
     y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + .5
@@ -79,7 +76,12 @@ def plot_decision_boundary(model, X, y, title=""):
     xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
 
     # Predict the function value for the whole gid
-    probs_grid, _, _ = model.predict(torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
+    if predict_func == 'predict':
+        probs_grid, _, _ = model.predict(torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
+
+    elif predict_func == 'bma':
+        probs_grid = model.bma(S = 40, thetaSWA= thetaSWA, Sigma_vec=Sigma_vec, D_hat = D_hat, X = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
+
     probs0_grid = probs_grid.detach().numpy()[:, 1]
     probs0_grid = probs0_grid.reshape(xx.shape)
 
@@ -95,3 +97,52 @@ def plot_decision_boundary(model, X, y, title=""):
     plt.title(title)
 
     plt.show()
+
+def Squared_matrix(D, is_diagonal = True):
+    """
+    params: D: if is_diagonal is false is needs a 2D vector, if is_diagonal is true it needs a 1D vector
+    """
+
+    if is_diagonal:
+        # test ig D is positive semi definite
+        if np.any(D.detach().numpy() < 0):
+            print("Some eigenvalues are smaller than 0")
+            return False
+        else:
+            # principal root of D
+            new = torch.sqrt(D)
+            return new
+
+    else:
+        # Test if D is symmetric:
+        d_t = torch.transpose(D,0,1)
+        if sum(sum(d_t !=D)).item():
+            print("D is not symmetric")
+            return False
+
+        # Test if D is positive definite
+        if np.any(np.linalg.eigvals(D) < 0):
+            print("Some eigenvalues are smaller than 0")
+            return False
+
+    # TODO: implementer dette selv!! og tjek at den regner rigtig
+        new = fractional_matrix_power(D, (-1 / 2))
+        return new
+
+
+
+def update_running_moment(theta, theta_i, n):
+    """
+    params: theta: tensor
+            theta_i: tensor
+            n: int
+    """
+    new = (n * theta + theta_i) / (n + 1)
+    return new
+
+
+def plot_while_train(train_loader, net):
+    for i, j, k in train_loader:
+        Xtrain = i
+        ytrain = j
+    plot_decision_boundary(net, Xtrain, ytrain, title="Pretrained")

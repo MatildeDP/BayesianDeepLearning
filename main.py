@@ -1,17 +1,17 @@
 import torch
 import torch.nn as nn
-from NN import DataLoaderInput, test, train, Net
+from deterministic import Deterministic_net
+from data import DataLoaderInput
 from utils import plot_decision_boundary, plot_acc_and_loss
-from sklearn.datasets import make_moons
+from sklearn.datasets import make_moons, make_circles
 
 
 
-if __name__ == '__main__':
-
-    train_dataset = make_moons(n_samples=1000, noise=0.2, random_state=0)
+def main_deterministic():
+    train_dataset = make_moons(n_samples=1000, noise=0.1, random_state=3)
     Xtrain, ytrain = train_dataset
 
-    test_dataset = make_moons(n_samples=200, noise=0.2, random_state=0)
+    test_dataset = make_moons(n_samples=200, noise=0.1, random_state=3)
     Xtest, ytest = test_dataset
 
     batch_size = 128
@@ -26,19 +26,29 @@ if __name__ == '__main__':
                                               shuffle=False)
 
     input_dim = 2
-    hidden_dim = 50
+    hidden_dim = 10
     output_dim = 2
     learning_rate = 0.1
 
-    model = Net(input_dim, hidden_dim, output_dim)
+    model = Deterministic_net(input_dim, hidden_dim, output_dim)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
-    model, train_loss, test_loss, acc = train(num_epochs = num_epochs,train_loader = train_loader, optimizer = optimizer, model = model, criterion = criterion, test_loader = test_loader)
+    ############
+    model.load_state_dict(torch.load('models/NN_10_circle.pth'))
+    optimizer.load_state_dict(torch.load('Optimizers/opti_10_circle.pth'))
+    #############
 
-    plot_decision_boundary(model, Xtest, ytest,title= "Decision boundary with test points on trained model")
+    train_loss, test_loss, acc = model.run(num_epochs, test_loader, train_loader,criterion, optimizer, save_net = False, net_path = 'NN_10_circle.pth', opti_path = 'opti_10_circle.pth')
 
-    plot_acc_and_loss(testloss = test_loss, trainloss = train_loss, accuracy = acc)
+    plot_decision_boundary(model, Xtest, ytest, title="Decision boundary with test points on trained model")
 
+    plot_acc_and_loss(testloss=test_loss, trainloss=train_loss, accuracy=acc)
+
+
+if __name__ == '__main__':
+
+    # Run deterministic net
+    main_deterministic()
 
 
