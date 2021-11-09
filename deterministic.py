@@ -32,8 +32,8 @@ class Deterministic_net(Net):
         # plot_decision_boundary(model, Xtrain,  ytrain, title = "Decision boundary with train points during training")
 
         if save_net:
-            torch.save(self.state_dict(), 'models/' + net_path)
-            torch.save(optimizer.state_dict(), 'Optimizers/' + opti_path)
+            torch.save(self.state_dict(),  net_path)
+            torch.save(optimizer.state_dict(), opti_path)
 
 
         return optimizer, criterion, loss_ave

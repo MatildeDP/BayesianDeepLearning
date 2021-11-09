@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import torch
 from copy import deepcopy
+from BMA import bma
 from scipy.linalg import fractional_matrix_power
 
 
@@ -43,7 +44,7 @@ def scatter(X, y, yhat, epoch):
     plt.show()
 
 
-def plot_acc_and_loss(testloss, trainloss, accuracy):
+def plot_acc_and_loss(testloss, trainloss, accuracy, save_path, save_image_path = True):
     sns.set_theme()
     num_epochs = len(accuracy)
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
@@ -63,13 +64,53 @@ def plot_acc_and_loss(testloss, trainloss, accuracy):
     axes[0].set_ylabel('Loss')
     axes[1].set_ylabel('Accuracy')
 
+    if save_image_path:
+        plt.savefig("Plots/" + save_path)
+
+    plt.show()
+    plt.close()
+
+def compare_parameter_loss_plot(trainloss, testloss, param, num_epochs, save_path = ''):
+    """
+    :param trainloss: dict: key = parameter value, value: loss
+    :param testloss: dict: key = parameter value, value: loss
+    :param: param: str: which parameter
+    :return:
+    """
+    sns.set_theme()
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    fig.suptitle('Loss for different settings of' + param)
+
+    trainloss['Epochs'] = [i for i in range(num_epochs)]
+    testloss['Epochs'] = [i for i in range(num_epochs)]
+
+    df_trainloss = pd.DataFrame(trainloss)
+    df_testloss = pd.DataFrame(testloss)
+
+
+    sns.lineplot(ax=axes[0], x='Epochs', y='value', hue='variable', data=pd.melt(df_trainloss, 'Epochs'),palette = "tab10" )
+    sns.lineplot(ax=axes[1], x='Epochs', y='value', hue='variable', data=pd.melt(df_testloss, 'Epochs'), palette = "tab10")
+
+
+    axes[0].set_title('Training Loss')
+    axes[0].set_xlabel('Epochs')
+    axes[0].set_ylabel('Loss')
+
+    axes[1].set_title('Test Loss')
+    axes[1].set_xlabel('Epochs')
+    axes[1].set_ylabel('Accuracy')
+
+    if save_path:
+        plt.savefig("Plots/" + save_path)
+
     plt.show()
 
 
-def plot_decision_boundary(model, X, y, thetaSWA = 0, Sigma_vec = 0, D_hat = 0,title="", predict_func = 'predict'):
+
+def plot_decision_boundary(model, X, y,title="", predict_func = 'predict', save_image_path = ""):
     # Set min and max values and give it some padding
-    x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
-    y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + .5
+    x_min, x_max = X[:, 0].min() - 2, X[:, 0].max() + 2
+    y_min, y_max = X[:, 1].min() - 2, X[:, 1].max() + 2
     h = 0.01
 
     # Generate a grid of points with distance h between them
@@ -80,7 +121,7 @@ def plot_decision_boundary(model, X, y, thetaSWA = 0, Sigma_vec = 0, D_hat = 0,t
         probs_grid, _, _ = model.predict(torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
 
     elif predict_func == 'bma':
-        probs_grid = model.bma(S = 40, thetaSWA= thetaSWA, Sigma_vec=Sigma_vec, D_hat = D_hat, X = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
+        probs_grid, _, _ = bma(model, S = 40, Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest = 0, criterion = 0, test = False)
 
     probs0_grid = probs_grid.detach().numpy()[:, 1]
     probs0_grid = probs0_grid.reshape(xx.shape)
@@ -96,7 +137,14 @@ def plot_decision_boundary(model, X, y, thetaSWA = 0, Sigma_vec = 0, D_hat = 0,t
     plt.ylabel = ("$X_2$")
     plt.title(title)
 
+
+    if save_image_path:
+        plt.savefig("Plots/" + save_image_path)
+
     plt.show()
+    plt.close()
+
+
 
 def Squared_matrix(D, is_diagonal = True):
     """
@@ -113,21 +161,6 @@ def Squared_matrix(D, is_diagonal = True):
             new = torch.sqrt(D)
             return new
 
-    else:
-        # Test if D is symmetric:
-        d_t = torch.transpose(D,0,1)
-        if sum(sum(d_t !=D)).item():
-            print("D is not symmetric")
-            return False
-
-        # Test if D is positive definite
-        if np.any(np.linalg.eigvals(D) < 0):
-            print("Some eigenvalues are smaller than 0")
-            return False
-
-    # TODO: implementer dette selv!! og tjek at den regner rigtig
-        new = fractional_matrix_power(D, (-1 / 2))
-        return new
 
 
 
@@ -140,9 +173,3 @@ def update_running_moment(theta, theta_i, n):
     new = (n * theta + theta_i) / (n + 1)
     return new
 
-
-def plot_while_train(train_loader, net):
-    for i, j, k in train_loader:
-        Xtrain = i
-        ytrain = j
-    plot_decision_boundary(net, Xtrain, ytrain, title="Pretrained")
