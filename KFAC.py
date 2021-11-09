@@ -4,6 +4,7 @@ import torch
 from sklearn.datasets import make_moons
 from utils import plot_decision_boundary
 from deterministic import Net
+from torch.autograd import functional
 
 
 
@@ -12,22 +13,23 @@ class KFAC(Net):
         super().__init__(input_dim, hidden_dim, output_dim)
 
         self.layers = ['fc1', 'fc2', 'fc3']
+        self.L = L
 
         self.a = {i: [] for i in range(L)}  # activation dict running sum
         self.a_grad = {i: [] for i in range(1, L+1)}
         # TODO: Husk at der ikke er added ones til a endnu!!!
         self.h = {i: [] for i in range(1, L+1)}  # pre-activation dict running sum
         self.grads = {i: 0 for i in range(1, L+1)}  # gradients for each layer running sum
+        self.dedh3 = 0
 
         self.optimizer = optimizer
         self.criterion = nn.CrossEntropyLoss()
-        #self.logsoftmax = nn.()
         self.tanh2 = nn.Tanh()
 
         # Backward hooks
         self.tanh.register_backward_hook(self.save_activation_grads(1))
         self.tanh2.register_backward_hook(self.save_activation_grads(2))
-        #self.logsoftmax.register_backward_hook(self.save_activation_grads(3))
+        self.fc3.register_backward_hook(self.save_pre_activation_grads)
 
         # Forward hooks
         self.fc1.register_forward_hook(self.save_pre_activations(1))
@@ -35,12 +37,12 @@ class KFAC(Net):
         self.fc3.register_forward_hook(self.save_pre_activations(3))
         self.tanh.register_forward_hook(self.save_activations(1))
         self.tanh2.register_forward_hook(self.save_activations(2))
-        #self.logsoftmax.register_forward_hook(self.save_activations(3))
 
         # Matrices
         self.Q = self.MatrixContainer(L)
         self.D = self.MatrixContainer(L)
         self.B = self.MatrixContainer(L)
+
 
     def __setitem__(self, value, key = 0):
         self.a[key] += value
@@ -84,6 +86,17 @@ class KFAC(Net):
             self.a_grad[Lambda].append((mod, out[0].detach()))
         return hook
 
+    def save_pre_activation_grads(self,mod, ind, out):
+        """
+        Hook structure
+        :param mod: nn module
+        :param ind: tensor
+        :param out: tensor gradient
+        """
+        self.dedh3 = (mod, out[0].detach())
+
+
+
     def save_pre_activations(self, Lambda):
         def hook(mod, ind, out):
             """
@@ -122,6 +135,32 @@ class KFAC(Net):
         self.grads[3] += torch.cat(
             (self.fc3.weight.grad, torch.reshape(self.fc3.bias.grad, (len(self.fc3.bias.grad), 1))), 1)
 
+    def cross_entropy_loss_binary(self, correct, rest):
+        """
+        :param correct: The score of the network related to the correct class
+        :param rest: The score of the network related to the incorrect class
+        :return: cross entropy loss
+        """
+
+        loss = -torch.log(torch.exp(correct) / (torch.exp(rest) + torch.exp(correct)))
+        return loss
+
+    def cross_entropy_loss(self, scores):
+        """
+        :param scores: Output scores of network. First element MUST be the score of the correct class
+        :return: cross entropy loss
+        """
+        return -torch.log(torch.exp(scores[0]) / (sum([torch.exp(i) for i in scores[1:]]) + torch.exp(scores[0])))
+
+    def Hessian(self, func, input):
+        """
+        :param func: function to be evaluated
+        :param input: tuple or tensor with input to func. Elements must be torch tensors
+        :return: hessian of one data point
+        """
+        return functional.hessian(func, input)
+
+
     def collect_values(self, data):
         """
         Collects running sum of activations, pre-activations and gradients for each layer
@@ -145,10 +184,15 @@ class KFAC(Net):
 
             # Collect weight gradients
             self.update_gradient_dict()
+
+
         a = 123
 
-    def compute_q(self):
+    def compute_q_old(self):
+        """
+        Computes the covariance of the activations
 
+        """
 
         for Lambda, item in self.a.items():
             length = item[0][1]
@@ -168,10 +212,44 @@ class KFAC(Net):
                 pass
                 # TODO: implement for higher dimensional data
 
+    def compute_Qlambda(self, Lambda):
+        """
+        :param Lambda: Layer index
+        :return: Covariance matrix of the activations
+        """
 
-    def compute_H(self):
-        # TODO Compute H
+        return torch.matmul(torch.unsqueeze(self.a[Lambda], 1), torch.unsqueeze(self.a[Lambda], 0))
+
+
+    def compute_Hlambda(self, ddf_lambda, df_lambda, Lambda):
+
+        # TODO: When you compute the hessian, remember that the functions only computes the hessian of one datapoint. you shall sum and divide with number of datapoint.
+
+        if Lambda == self.L: # stop recursion after computation for 1st layer
+            return
+
+
+
         pass
+
+    def compute_Dlambda(self, ddf_lambda, Lambda):
+        """
+        :param ddf_lambda: second derivative of activation function
+        :param Lambda: Layer index
+        :return: Diagonal matrix with elements equal to the product of the second derivative of  the activation function
+        w.r.t the pre-activation and the derivative of the cost function w.r.t the activation
+        """
+        return ddf_lambda(self.h[Lambda])*self.a_grad[Lambda] * torch.eye(len(self.h[Lambda]))
+
+
+    def compute_B(self, df_lambda, Lambda):
+        """
+        :param df_lambda: derivative of activation function
+        :param Lambda: Layer index
+        :return: Diagonal matrix with elements equal to the derivative of the activation function w.r.t the pre-activation
+        """
+        return df_lambda(self.h[Lambda]) * torch.eye(len(self.h[Lambda]))
+
 
     def compute_Wstar(self):
         ##  TODO Mean of distirbution
