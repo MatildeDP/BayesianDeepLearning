@@ -5,15 +5,15 @@ def bma(model, S, Xtest, ytest, criterion, test = True):
     """
     Monte Carlo approximation
     """
-    ytest = ytest
+
     n = len(Xtest)  # number of test points
     prob_dist = torch.zeros(n, 2)
     accuracy, all_loss = [], []
 
     for i in range(S):
-        # Sample weights from posterior
 
-        sampled_weights = model.sample_from_normal_posterior()
+        # Sample weights from posterior
+        sampled_weights = model.sample_from_posterior()
 
         # Replace network weights with sampled weights
         nn.utils.vector_to_parameters(sampled_weights, model.parameters())

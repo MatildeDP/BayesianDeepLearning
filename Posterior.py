@@ -140,7 +140,7 @@ class Swag_Net(Net):
             plot_decision_boundary(model=self, X=self.Xtest, y=self.ytest,title ="Epoch: " + str(epoch) + " \n Moments computed " + str(n) + " times.",predict_func='bma')
         return n, theta1, theta2, loss_ave
 
-    def sample_from_normal_posterior(self):
+    def sample_from_posterior(self):
         """
         input: m: SWA means in 1D
                Sigma_diag: sample vairances 1D
