@@ -18,25 +18,27 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, output_dim)
 
+        #self.tanh = nn.Tanh()
+        self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
         #self.s = nn.Softmax(dim=1)
 
     def forward(self, x):
         x = self.fc1(x)
-        x = self.tanh(x)
+        x = self.relu(x)
         x = self.fc2(x)
-        x = self.tanh(x)
+        x = self.relu(x)
         x = self.fc3(x)
         #ss = self.s(x)
         return x
 
-
     def predict(self, X):
-        outs = self(X)
         s = nn.Softmax(dim=1)
-        probs = s(outs)
+        score = self(X)
+        probs = s(score)
+        pred = torch.max(probs, 1).indices
 
-        return probs, torch.max(probs, 1).indices, outs
+        return probs, score, pred
 
 
 

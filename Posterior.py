@@ -3,13 +3,22 @@ import torch.nn as nn
 from NN import Net
 # detach to avoid affecting the original gradients.
 # Clone keep requires grad equal to the cloned tensor
-from utils import plot_decision_boundary, Squared_matrix, update_running_moment
+from utils import plot_decision_boundary, Squared_matrix
 from torch.distributions.multivariate_normal import MultivariateNormal
 from BMA import bma
 
+def update_running_moment(theta, theta_i, n):
+    """
+    params: theta: tensor
+            theta_i: tensor
+            n: int
+    """
+    new = (n * theta + theta_i) / (n + 1)
+    return new
+
 
 class Swag_Net(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim, K, c, S, criterion, T, learning_rate, train_loader, test_loader, Xtest, ytest):
+    def __init__(self, input_dim, hidden_dim, output_dim, K, c, S, criterion, T, learning_rate, train_loader, test_loader, Xtest, ytest, l2_param):
         super().__init__(input_dim, hidden_dim, output_dim)
 
         self.K = int(K)
@@ -22,6 +31,8 @@ class Swag_Net(Net):
 
         self.criterion = criterion
         self.optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
+        self.learning_rate = learning_rate
+        self.l2_param = l2_param
         self.T = T
 
         self.D_hat = []
@@ -58,9 +69,14 @@ class Swag_Net(Net):
         Stochastic weight average  - Gaussian
         """
 
-        # Pretrain network
+        # Load pretrained network
         self.load_state_dict(torch.load(net_path))
-        # optimizer.load_state_dict(torch.load(opti_path))
+        self.optimizer.load_state_dict(torch.load(opti_path))
+
+        # Alter parameters
+        for g in self.optimizer.param_groups:
+            g['weight_decay'] = self.l2_param
+            g['lr'] = self.learning_rate
 
         # plot pretrained network
         plot_decision_boundary(model = self, X =self.train_loader.dataset.X, y =self.train_loader.dataset.y, title="Pretrained")
@@ -68,18 +84,26 @@ class Swag_Net(Net):
         # Extract initial weights
         theta1, theta2 = self.get_ith_moments()
 
-        # Initialize
+        # Initialize error and accuracy container
         test_loss, train_loss, all_acc = [], [], []
         n = 0
 
+        # Run T epoch of training and testing
         for i in range(self.T):
+
+            # Train swag
             n, theta1, theta2, loss_ = self.train_swag(epoch=i, n=n, theta1=theta1, theta2=theta2)
+
+            # Collect train loss
             train_loss.append(loss_)
 
+            # Test current SWAG model (if D hat has rank K)
             if len(self.D_hat) == self.K:
                 self.theta_swa = theta1.clone().detach()
                 self.sigma_vec = theta2 - theta1 ** 2
                 _, acc, loss = bma(model = self, S = self.S, Xtest=self.Xtest, ytest=self.ytest, criterion=self.criterion)
+
+                # collect test loss and accuracy
                 test_loss.append(sum(loss) / len(loss))
                 all_acc.append(sum(acc) / len(acc))
 
@@ -87,6 +111,7 @@ class Swag_Net(Net):
                 test_loss.append(0)
                 all_acc.append(0)
 
+        # Update class values
         self.theta_swa = theta1.clone().detach()
         self.sigma_vec = theta2 - theta1 ** 2
 
@@ -111,7 +136,7 @@ class Swag_Net(Net):
             if j == 0:
                 print("Running loss average: %s" %loss_ave)
 
-        # Update moments
+        # Update moments with frequency c
         if epoch % self.c == 0 and epoch != 0:
 
             with torch.no_grad():
@@ -137,7 +162,7 @@ class Swag_Net(Net):
 
         #  Plot every 100th epoch
         if epoch % 10000 == 0 and len(self.D_hat) == self.K:
-            plot_decision_boundary(model=self, X=self.Xtest, y=self.ytest,title ="Epoch: " + str(epoch) + " \n Moments computed " + str(n) + " times.",predict_func='bma')
+            plot_decision_boundary(model=self, X=self.Xtest, y=self.ytest, title ="Epoch: " + str(epoch) + " \n Moments computed " + str(n) + " times.",predict_func='bma')
         return n, theta1, theta2, loss_ave
 
     def sample_from_posterior(self):
@@ -147,7 +172,7 @@ class Swag_Net(Net):
                D_hat: approximate sample covarinance 1D
         return: parameters in vector shape
         """
-        Sigma_diag_squared = torch.diag(Squared_matrix(self.sigma_vec))
+        Sigma_diag_squared = torch.diag(Squared_matrix(self.sigma_vec)) # TODO: Det går vel ikke rigtigt at tage abs???
         # Sample weight from posterior
         param_sample = self.theta_swa + 1 / (2 ** (1 / 2)) * torch.matmul(Sigma_diag_squared, self.z1.sample()) + 1 / (
                     (2 * (self.K - 1)) ** (1 / 2)) * torch.matmul(torch.cat(self.D_hat, dim=1), self.z2.sample())

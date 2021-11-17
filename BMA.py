@@ -1,13 +1,29 @@
 import torch
 import torch.nn as nn
 
-def bma(model, S, Xtest, ytest, criterion, test = True):
+
+def monte_carlo_bma(model, Xtest, ytest, S, C, forplot=False):
+
     """
-    Monte Carlo approximation
+    Monte carlo approximation of BMA.
+
+    Notice, that the model class MUST contain following functions:
+       1. sample_from_posterior
+       2. replace_network_weights
+       3. predict
+       4. nn Criterion
+
+    :param test_loader: test data
+    :param S: number of models to sum over
+    :param c: number of classes
+    :return: p_yx: torch.tensor (nxc), contains p(y = c|x) for all classes and for all x in test_loader
+    :return: p_yxw: dict. one key-value pair per model. Value = torch tensor (nxc), with (y=c|x,w), c in classes, x in test_loader
+    :return: accuracy and loss for all models
     """
 
     n = len(Xtest)  # number of test points
-    prob_dist = torch.zeros(n, 2)
+    p_yx = torch.zeros(n, C)
+    p_yxw = {i: [] for i in range(S)}
     accuracy, all_loss = [], []
 
     for i in range(S):
@@ -15,26 +31,23 @@ def bma(model, S, Xtest, ytest, criterion, test = True):
         # Sample weights from posterior
         sampled_weights = model.sample_from_posterior()
 
-        # Replace network weights with sampled weights
-        nn.utils.vector_to_parameters(sampled_weights, model.parameters())
+        # Replace network weights with sampled network weights
+        model.replace_network_weights(sampled_weights)
 
         # Monte Carlo
-        probs, preds, outs = model.predict(Xtest)
-        prob_dist += 1 / S * probs
+        p_yxw[i], score, _ = model.predict(Xtest)
+        p_yx += 1 / S * p_yxw[i]
 
 
-        if test:
-            preds = torch.max(probs, 1).indices
-            acc = (preds == ytest).sum() / len(ytest)
+        if not forplot:
+            yhat = torch.max(p_yxw[i], 1).indices
+            acc = (yhat == ytest).sum() / len(ytest)
             accuracy.append(acc.item())
-            loss = criterion(outs, ytest)
+            loss = model.criterion(score, ytest)
             all_loss.append(loss.item())
 
+    if forplot:
+        return p_yx
 
-        # TODO: Plot histogrammer af tilfældige predictive distributions
-
-    if test:
-        a = sum(accuracy) / len(accuracy)
-        print("                                            Average accuracy on test data %s " %a)
-
-    return prob_dist, accuracy, all_loss
+    else:
+        return p_yxw, p_yx, accuracy, all_loss

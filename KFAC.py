@@ -2,45 +2,49 @@ from deterministic import Deterministic_net
 import torch.nn as nn
 import torch
 from sklearn.datasets import make_moons
-from utils import plot_decision_boundary
 from deterministic import Net
 from torch.autograd import functional
 from torch import matmul as matmul
 from scipy.stats import matrix_normal
-from scipy.linalg import det
 from torch import inverse
+from utils import plot_decision_boundary
 
+
+
+# TODO: Når parametre som skal tunes med "standard" grid search er tunet, skal skal de fixeres (conditioned on dastaset)
+ # Hidden units, hidden layers, batch size, L2 parameter, momentum
 
 class KFAC(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim, optimizer, L):
+    def __init__(self, input_dim, hidden_dim, output_dim, optimizer, L):#, scheduler):
         super().__init__(input_dim, hidden_dim, output_dim)
 
         self.layers = {1: self.fc1, 2: self.fc2, 3: self.fc3}
-        self.diff = {1: 'tanh', 2: 'tanh'}
+        self.diff = {1: 'relu', 2: 'relu'}
         self.L = L
 
         self.a = {i: [] for i in range(L)}  # activation dict running sum
         self.a_grad = {i: [] for i in range(1, L + 1)}
-        # TODO: Husk at der ikke er added ones til a endnu!!!
         self.h = {i: [] for i in range(1, L + 1)}  # pre-activation dict running sum
         self.grads = {i: 0 for i in range(1, L + 1)}  # gradients for each layer running sum
         self.dedh3 = 0
 
         self.optimizer = optimizer
+        #self.scheduler = scheduler
         self.criterion = nn.CrossEntropyLoss()
-        self.tanh2 = nn.Tanh()
+        self.relu2 = nn.LeakyReLU(negative_slope=0.001)
+
 
         # Backward hooks
-        self.tanh.register_backward_hook(self.save_activation_grads(1))
-        self.tanh2.register_backward_hook(self.save_activation_grads(2))
+        self.relu.register_backward_hook(self.save_activation_grads(1))
+        self.relu2.register_backward_hook(self.save_activation_grads(2))
         self.fc3.register_backward_hook(self.save_pre_activation_grads)
 
         # Forward hooks
         self.fc1.register_forward_hook(self.save_pre_activations(1))
         self.fc2.register_forward_hook(self.save_pre_activations(2))
         self.fc3.register_forward_hook(self.save_pre_activations(3))
-        self.tanh.register_forward_hook(self.save_activations(1))
-        self.tanh2.register_forward_hook(self.save_activations(2))
+        self.relu.register_forward_hook(self.save_activations(1))
+        self.relu2.register_forward_hook(self.save_activations(2))
 
         # Matrices
         self.Q = self.MatrixContainer(L)
@@ -71,25 +75,35 @@ class KFAC(Net):
         x.requires_grad = True
 
         h1 = self.fc1(x)
-        a1 = self.tanh(h1)
+        a1 = self.relu(h1)
         h2 = self.fc2(a1)
-        a2 = self.tanh2(h2)  # update activation
+        a2 = self.relu2(h2)  # update activation
         h3 = self.fc3(a2)
 
         return h3
-
-    def predict(self, X):
-        score = self(X)
-        s = nn.Softmax(dim=1)
-        probs = s(score)
-
-        return probs, score
 
     def tanh_ddf(self, x):
         return -2 * torch.tanh(x) * (1 - torch.tanh(x) ** 2)
 
     def tanh_df(self, x):
         return 1 - torch.tanh(x) ** 2
+
+
+    def relu_ddf(self, x):
+        return torch.zeros(x.shape)
+
+    def relu_df(self, x):
+        """
+        :param x: input tensor
+        :return: derivative of relu w.r.t x
+        Notice: if x = 0, the derivative is undefined. However, it will be defined as 0.
+        """
+        temp = [int(val) for val in x > 0]
+        if 0 in x:
+            print("The derivative of Relu is not defined for x = 0. However, this function returns 0 when x = 0")
+
+        return torch.tensor(temp)
+
 
     def save_activation_grads(self, Lambda):
         def hook(mod, ind, out):
@@ -242,6 +256,9 @@ class KFAC(Net):
 
         if func == 'tanh':
             return self.tanh_ddf(self.h[Lambda][1]) * self.a_grad[Lambda][1] * torch.eye(len(self.h[Lambda][1]))
+        elif func == 'relu':
+            return self.relu_ddf(self.h[Lambda][1]) * self.a_grad[Lambda][1] * torch.eye(len(self.h[Lambda][1]))
+
 
     def compute_B(self, func, Lambda):
         """
@@ -254,6 +271,9 @@ class KFAC(Net):
 
             # return torch.cat((self.tanh_df(self.h[Lambda][1]), torch.zeros(1)), 0) * torch.eye(
             #    len(self.h[Lambda][1]) + 1)
+
+        elif func == 'relu':
+            return self.relu_df(self.h[Lambda][1]) * torch.eye(len(self.h[Lambda][1]))
 
     def compute_H(self, Lambda, n):
         """
@@ -319,75 +339,54 @@ class KFAC(Net):
 
         return samples
 
-    def monte_carlo_bma(self, test_loader, S, C):
-        """
-        :param test_loader: test data
-        :param S: number of models to sum over
-        :param m: number of features
-        :return: p_yx: torch.tensor (nxc), contains p(y = c|x) for all classes and for all x in test_loader
-        :return: p_yxw: dict. one key-value pair per model. Value = torch tensor (nxc), with (y=c|x,w), c in classes, x in test_loader
-        :return: accuracy and loss for all models
-        """
 
-        n = len(test_loader)  # number of test points
-        p_yx = torch.zeros(n, C)
-        p_yxw = {i: [] for i in range(S)}
-        accuracy, all_loss = [], []
-        Xtest, ytest = torch.tensor(test_loader.dataset.X), torch.tensor(test_loader.dataset.y)
+    def replace_network_weights(self, sampled_weights):
+        # Replace network weights with sampled weights
+        for idx in range(1, len(self.layers) + 1):
+            w_idx = self.layers[idx].weight.shape
 
-        for i in range(S):
+            self.layers[idx].weight.data = torch.tensor(sampled_weights[idx][:, :w_idx[1]])
+            self.layers[idx].bias.data = torch.squeeze(torch.tensor(sampled_weights[idx][:, w_idx[1]:]))
 
-            # Sample weights from posterior
-            sampled_weights = self.sample_from_posterior()
-
-            # Replace network weights with sampled weights
-            for idx in range(1, len(self.layers) + 1):
-                w_idx = self.layers[idx].weight.shape
-
-                self.layers[idx].weight.data = torch.tensor(sampled_weights[idx][:, :w_idx[1]])
-                self.layers[idx].bias.data = torch.squeeze(torch.tensor(sampled_weights[idx][:, w_idx[1]:]))
-
-            # Monte Carlo
-            p_yxw[i], score = self.predict(Xtest)
-            p_yx += 1 / S * p_yxw[i]
-
-            preds = torch.max(p_yxw[i], 1).indices
-            acc = (preds == ytest).sum() / len(ytest)
-            accuracy.append(acc.item())
-            loss = criterion(score, ytest)
-            all_loss.append(loss.item())
-
-        return p_yxw, p_yx, accuracy, all_loss
 
 
 from data import DataLoaderInput
 
 if __name__ == '__main__':
     input_dim = 2
-    hidden_dim = 50
+    hidden_dim = 5
     output_dim = 2
-    learning_rate = 0.1
-    tau = 0.1
-    noise = 0.8
 
-    net_path = 'models/NN_50.pth'
-    opti_path = 'Optimizers/Opti_50.pth'
+    #momentum = 0.01
+    tau = 0.1
+    noise = 0.7
+    S = 30
+    C = 2
+    #decayRate = 0.2
+
+
+    net_path = 'models/NN_5_KFAC.pth'
+    opti_path = 'Optimizers/Opti_5_KFAC.pth'
 
     model = Deterministic_net(input_dim, hidden_dim, output_dim)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
-    model.load_state_dict(torch.load(net_path)) # TODO load model
-    optimizer.load_state_dict(torch.load(opti_path)) # TODO load model
+    optimizer = torch.optim.SGD(model.parameters(), lr=0)#, momentum = momentum)
+    model.load_state_dict(torch.load(net_path))  # TODO load model
+    optimizer.load_state_dict(torch.load(opti_path))  # TODO load model
+    #scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=decayRate)
 
-    train_dataset = make_moons(n_samples=100, noise=noise, random_state=3)
+
+    train_dataset = make_moons(n_samples=1000, noise=noise, random_state=3)
     Xtrain, ytrain = train_dataset
 
     train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(Xtrain, ytrain),
                                                batch_size=1,
                                                shuffle=True)
 
-    test_dataset = make_moons(n_samples=20, noise=noise, random_state=5)
+    test_dataset = make_moons(n_samples=100, noise=noise, random_state=5)
     Xtest, ytest = test_dataset
+    Xtest = torch.tensor(Xtest)
+    ytest = torch.tensor(ytest)
 
     test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(Xtrain, ytrain),
                                               batch_size=1,
@@ -395,10 +394,16 @@ if __name__ == '__main__':
 
     # plot_decision_boundary(model=model, X=train_loader.dataset.X, y=train_loader.dataset.y, title="Pretrained")
 
-    kfac_model = KFAC(input_dim, hidden_dim, output_dim, optimizer, 3)  # initialise class
+    kfac_model = KFAC(input_dim, hidden_dim, output_dim, optimizer, L = 3)#, scheduler =scheduler )  # initialise class
     kfac_model.load_model(net_path)  # TODO load model
     kfac_model.collect_values(train_loader)
     kfac_model.regularize_and_add_prior(tau=tau, N=len(train_loader))
-    p_yxw, p_yx, accuracy, all_loss = kfac_model.monte_carlo_bma(test_loader, S=10, C=2)
+    #p_yxw, p_yx, accuracy, all_loss = kfac_model.monte_carlo_bma(Xtest, ytest,  S=10, C=2)
+
+    # Plot decision boundary
+    plot_decision_boundary(kfac_model, dataloader=test_loader, S = 20, title="", predict_func='stochastic', save_image_path="")
+
+    # Get accuracy
+    p_yxw, p_yx, accuracy, all_loss = kfac_model.monte_carlo_bma(Xtest, ytest, S = S, C = C)
 
     a = 123
