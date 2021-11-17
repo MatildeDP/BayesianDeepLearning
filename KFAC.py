@@ -8,6 +8,7 @@ from torch import matmul as matmul
 from scipy.stats import matrix_normal
 from torch import inverse
 from utils import plot_decision_boundary
+from BMA import monte_carlo_bma
 
 
 
@@ -378,6 +379,8 @@ if __name__ == '__main__':
 
     train_dataset = make_moons(n_samples=1000, noise=noise, random_state=3)
     Xtrain, ytrain = train_dataset
+    Xtrain = torch.tensor(Xtrain)
+    ytrain = torch.tensor(ytrain)
 
     train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(Xtrain, ytrain),
                                                batch_size=1,
@@ -398,12 +401,10 @@ if __name__ == '__main__':
     kfac_model.load_model(net_path)  # TODO load model
     kfac_model.collect_values(train_loader)
     kfac_model.regularize_and_add_prior(tau=tau, N=len(train_loader))
-    #p_yxw, p_yx, accuracy, all_loss = kfac_model.monte_carlo_bma(Xtest, ytest,  S=10, C=2)
 
     # Plot decision boundary
     plot_decision_boundary(kfac_model, dataloader=test_loader, S = 20, title="", predict_func='stochastic', save_image_path="")
 
     # Get accuracy
-    p_yxw, p_yx, accuracy, all_loss = kfac_model.monte_carlo_bma(Xtest, ytest, S = S, C = C)
-
+    p_yxw, p_yx, accuracy, all_loss = monte_carlo_bma(kfac_model, Xtest, ytest, S = S, C = C)
     a = 123
