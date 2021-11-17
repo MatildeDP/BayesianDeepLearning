@@ -10,8 +10,8 @@ class DataLoaderInput:
         self.y = y
 
     def __getitem__(self, idx):
-        x = torch.from_numpy(self.X[idx]).float()
-        y = torch.tensor(self.y[idx])
+        x = self.X[idx].float()
+        y = self.y[idx]
         return x, y, idx
 
     def __len__(self):

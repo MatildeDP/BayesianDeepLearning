@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import torch
 from copy import deepcopy
-from BMA import bma
+from BMA import monte_carlo_bma
 from scipy.linalg import fractional_matrix_power
 
 
@@ -107,7 +107,10 @@ def compare_parameter_loss_plot(trainloss, testloss, param, num_epochs, save_pat
 
 
 
-def plot_decision_boundary(model, X, y,title="", predict_func = 'predict', save_image_path = ""):
+def plot_decision_boundary(model, dataloader, S, title="", predict_func = 'predict', save_image_path = ""):
+    X = dataloader.dataset.X.clone().detach()
+    y = dataloader.dataset.y.clone().detach()
+
     # Set min and max values and give it some padding
     x_min, x_max = X[:, 0].min() - 2, X[:, 0].max() + 2
     y_min, y_max = X[:, 1].min() - 2, X[:, 1].max() + 2
@@ -120,8 +123,13 @@ def plot_decision_boundary(model, X, y,title="", predict_func = 'predict', save_
     if predict_func == 'predict':
         probs_grid, _, _ = model.predict(torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
 
-    elif predict_func == 'bma':
-        probs_grid, _, _ = bma(model, S = 40, Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest = 0, criterion = 0, test = False)
+    elif predict_func == 'stochastic':
+        #probs_grid, _, _ = bma(model, S = 20, Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest = 0, criterion = 0, test = False)
+        probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True)
+    #elif predict_func == 'kfac':
+        #probs_grid = model.monte_carlo_bma(Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()]), ytest=0, S = 20, C = 2 ,forplot = True)
+
+    #probs_grid = monte_carlo_bma(model, Xtest = X, ytest = y, S = S, C = 2, forplot=True)
 
     probs0_grid = probs_grid.detach().numpy()[:, 1]
     probs0_grid = probs0_grid.reshape(xx.shape)
@@ -146,13 +154,15 @@ def plot_decision_boundary(model, X, y,title="", predict_func = 'predict', save_
 
 
 
+
+
 def Squared_matrix(D, is_diagonal = True):
     """
     params: D: if is_diagonal is false is needs a 2D vector, if is_diagonal is true it needs a 1D vector
     """
 
     if is_diagonal:
-        # test ig D is positive semi definite
+        # test if D is positive semi definite
         if np.any(D.detach().numpy() < 0):
             print("Some eigenvalues are smaller than 0")
             return False
@@ -162,14 +172,4 @@ def Squared_matrix(D, is_diagonal = True):
             return new
 
 
-
-
-def update_running_moment(theta, theta_i, n):
-    """
-    params: theta: tensor
-            theta_i: tensor
-            n: int
-    """
-    new = (n * theta + theta_i) / (n + 1)
-    return new
 

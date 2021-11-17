@@ -4,8 +4,9 @@ from NN import Net
 
 
 class Deterministic_net(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, lr_scheduler = None):
         super().__init__(input_dim, hidden_dim, output_dim)
+        self.lr_scheduler = lr_scheduler
 
     def train_net(self, train_loader, optimizer, criterion, save_net = True, net_path = '', opti_path = ''):
         loss_ave = 0
@@ -27,6 +28,7 @@ class Deterministic_net(Net):
             # Update parameters
             optimizer.step()
 
+
         # if epoch % 30 == 0:
         # plot decision boundary with train data
         # plot_decision_boundary(model, Xtrain,  ytrain, title = "Decision boundary with train points during training")
@@ -45,7 +47,7 @@ class Deterministic_net(Net):
         # Iterate through test dataset
         for j, (Xtest, ytest, idx_test) in enumerate(test_loader):
 
-            probs, pred, score = self.predict(Xtest)
+            probs, score, pred = self.predict(Xtest)
             all_probs.append(probs)
 
             # Loss
@@ -71,7 +73,20 @@ class Deterministic_net(Net):
 
         return accuracy, loss_ave, all_probs
 
-    def run(self, num_epochs, test_loader, train_loader, criterion, optimizer, do_test=True, save_net = True, net_path = '', opti_path = ''):
+    def run(self, num_epochs, test_loader, train_loader, criterion, optimizer, save_net = True, net_path = '', opti_path = ''):
+
+        """
+        Trains determnistic neural netowrk with structure defined by NN.Net
+        :param num_epochs: Number of epochs to run
+        :param test_loader: dataloader with test data
+        :param train_loader: dataloader with train data
+        :param criterion: nn loss
+        :param optimizer: torch optim optimizer
+        :param save_net: Boolean value
+        :param net_path: Path to save net to
+        :param opti_path: Path to save optimizer to
+        :return: train_loss, test_loss and accuracy
+        """
         test_loss = []
         train_loss = []
         acc = []
@@ -82,13 +97,14 @@ class Deterministic_net(Net):
             # Test
             accuracy, tst_loss, _ = self.test_net(test_loader, criterion, freq=30, epoch=epoch)
 
-            print(
-                'Iteration: {}. Test Loss: {}. Train Loss: {}. Accuracy: {}'.format(epoch, tst_loss.item(), train_loss_,
-                                                                                    accuracy))
-
             # Collect loss
             train_loss.append(float(train_loss_))
             test_loss.append(float(tst_loss.detach().numpy()))
             acc.append(accuracy)
+
+            if epoch % 10 == 0:
+                print(
+                    'Iteration: {}. Test Loss: {}. Train Loss: {}. Accuracy: {}'.format(epoch, tst_loss.item(), train_loss_,
+                                                                                        accuracy))
 
         return train_loss, test_loss, acc
