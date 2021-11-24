@@ -187,7 +187,7 @@ class KFAC(Net):
         # collect MAP estimate of weights
         self.collectWstar()
 
-        for i, (Xtrain, ytrain, idx) in enumerate(data):
+        for i, (Xtrain, ytrain) in enumerate(data):
             # Clear gradients w.r.t. parameters
             self.optimizer.zero_grad()
 

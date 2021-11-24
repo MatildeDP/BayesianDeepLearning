@@ -17,17 +17,13 @@ def update_running_moment(theta, theta_i, n):
     return new
 
 class Swag(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim, K, c, S, criterion, num_epochs, learning_rate, l2_param, C):
+    def __init__(self, input_dim, hidden_dim, output_dim, K, c, S, criterion, num_epochs, learning_rate, l2_param):
         super().__init__(input_dim, hidden_dim, output_dim)
 
         self.K = int(K)
         self.p = sum(p.numel() for p in self.parameters())
         self.c = c
         self.S = S
-        self.C = C # number of classes
-
-        self.z1 = MultivariateNormal(torch.zeros(self.p), scale_tril=torch.diag(torch.ones(self.p)))
-        self.z2 = MultivariateNormal(torch.zeros(self.K), scale_tril=torch.diag(torch.ones(self.K)))
 
         self.criterion = criterion
         self.optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
@@ -38,6 +34,8 @@ class Swag(Net):
         self.D_hat = []
         self.theta_swa = torch.tensor([])
         self.sigma_vec = torch.tensor([])
+
+        self.output_dim = output_dim
 
 
     def get_ith_moments(self):
@@ -78,7 +76,7 @@ class Swag(Net):
             g['lr'] = self.learning_rate
 
         # plot pretrained network
-        plot_decision_boundary(model = self, dataloader=train_loader,S = 20, title="Pretrained")
+        #plot_decision_boundary(model = self, dataloader=train_loader,S = 20, title="Pretrained")
 
         # Extract initial weights
         theta1, theta2 = self.get_ith_moments()
@@ -100,7 +98,7 @@ class Swag(Net):
             if len(self.D_hat) == self.K:
                 self.theta_swa = theta1.clone().detach()
                 self.sigma_vec = theta2 - theta1 ** 2
-                p_yxw, p_yx, acc, loss = monte_carlo_bma(model = self, S = self.S, Xtest=Xtest, ytest=ytest, C = self.C)
+                p_yxw, p_yx, acc, loss = monte_carlo_bma(model = self, S = self.S, Xtest=Xtest, ytest=ytest, C = self.output_dim)
                 # collect test loss and accuracy
                 test_loss.append(sum(loss) / len(loss))
                 all_acc.append(sum(acc) / len(acc))
@@ -128,7 +126,7 @@ class Swag(Net):
                  loss_ave: Train loss for epoch, averaged over batches
         """
         loss_ave = 0
-        for j, (Xtrain, ytrain, idx) in enumerate(train_loader):
+        for j, (Xtrain, ytrain) in enumerate(train_loader):
             # Clear gradients w.r.t. parameters
             self.optimizer.zero_grad()
 
@@ -180,10 +178,12 @@ class Swag(Net):
                D_hat: approximate sample covarinance 1D
         return: parameters in vector shape
         """
-        Sigma_diag_squared = torch.diag(Squared_matrix(self.sigma_vec)) # TODO: Det går vel ikke rigtigt at tage abs???
+        Sigma_diag_squared = torch.diag(Squared_matrix(abs(self.sigma_vec))) # TODO: Det går vel ikke rigtigt at tage abs???
+        z1 = MultivariateNormal(torch.zeros(self.p), scale_tril=torch.diag(torch.ones(self.p)))
+        z2 = MultivariateNormal(torch.zeros(self.K), scale_tril=torch.diag(torch.ones(self.K)))
         # Sample weight from posterior
-        param_sample = self.theta_swa + 1 / (2 ** (1 / 2)) * torch.matmul(Sigma_diag_squared, self.z1.sample()) + 1 / (
-                    (2 * (self.K - 1)) ** (1 / 2)) * torch.matmul(torch.cat(self.D_hat, dim=1), self.z2.sample())
+        param_sample = self.theta_swa + 1 / (2 ** (1 / 2)) * torch.matmul(Sigma_diag_squared, z1.sample()) + 1 / (
+                    (2 * (self.K - 1)) ** (1 / 2)) * torch.matmul(torch.cat(self.D_hat, dim=1), z2.sample())
 
         return param_sample
 

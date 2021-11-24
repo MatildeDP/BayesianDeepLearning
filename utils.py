@@ -125,7 +125,7 @@ def plot_decision_boundary(model, dataloader, S, title="", predict_func = 'predi
 
     elif predict_func == 'stochastic':
         #probs_grid, _, _ = bma(model, S = 20, Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest = 0, criterion = 0, test = False)
-        probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float64), ytest=0, S=S, C=2, forplot=True)
+        probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True)
     #elif predict_func == 'kfac':
         #probs_grid = model.monte_carlo_bma(Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()]), ytest=0, S = 20, C = 2 ,forplot = True)
 

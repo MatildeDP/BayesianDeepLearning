@@ -11,7 +11,8 @@ class Deterministic_net(Net):
     def train_net(self, train_loader, optimizer, criterion, save_net = True, net_path = '', opti_path = ''):
         loss_ave = 0
 
-        for i, (Xtrain, ytrain, idx) in enumerate(train_loader):
+        for i, (Xtrain, ytrain) in enumerate(train_loader):
+
             # Clear gradients w.r.t. parameters
             optimizer.zero_grad()
 
@@ -45,7 +46,7 @@ class Deterministic_net(Net):
         loss_ave, accuracy = 0, 0
         all_probs = []
         # Iterate through test dataset
-        for j, (Xtest, ytest, idx_test) in enumerate(test_loader):
+        for j, (Xtest, ytest) in enumerate(test_loader):
 
             probs, score, pred = self.predict(Xtest)
             all_probs.append(probs)
@@ -102,7 +103,7 @@ class Deterministic_net(Net):
             test_loss.append(float(tst_loss.detach().numpy()))
             acc.append(accuracy)
 
-            if epoch % 10 == 0:
+            if epoch % 1 == 0:
                 print(
                     'Iteration: {}. Test Loss: {}. Train Loss: {}. Accuracy: {}'.format(epoch, tst_loss.item(), train_loss_,
                                                                                         accuracy))
