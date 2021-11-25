@@ -28,15 +28,17 @@ def monte_carlo_bma(model, Xtest, ytest, S, C, forplot=False):
 
     for i in range(S):
 
-        # Sample weights from posterior
-        sampled_weights = model.sample_from_posterior()
+        with torch.no_grad():
 
-        # Replace network weights with sampled network weights
-        model.replace_network_weights(sampled_weights)
+            # Sample weights from posterior
+            sampled_weights = model.sample_from_posterior()
 
-        # Monte Carlo
-        p_yxw[i], score, _ = model.predict(Xtest)
-        p_yx += 1 / S * p_yxw[i]
+            # Replace network weights with sampled network weights
+            model.replace_network_weights(sampled_weights)
+
+            # Monte Carlo
+            p_yxw[i], score, _ = model.predict(Xtest)
+            p_yx += 1 / S * p_yxw[i]
 
 
         if not forplot:
@@ -45,6 +47,8 @@ def monte_carlo_bma(model, Xtest, ytest, S, C, forplot=False):
             accuracy.append(acc.item())
             loss = model.criterion(score, ytest)
             all_loss.append(loss.item())
+
+            print('BMA loss.   Model number %i     loss: %s     accuracy: %s' %(i, loss, acc))
 
     if forplot:
         return p_yx

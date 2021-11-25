@@ -4,6 +4,7 @@ from NN import Net
 from utils import plot_decision_boundary, Squared_matrix
 from torch.distributions.multivariate_normal import MultivariateNormal
 from BMA import monte_carlo_bma
+import numpy as np
 
 # TODO: Når parametre som skal tunes med "standard" grid search er tunet, skal skal de fixeres (conditioned on dastaset)
  # Hidden units, hidden layers, batch size, L2 parameter, momentum
@@ -65,6 +66,8 @@ class Swag(Net):
 
         Stochastic weight average  - Gaussian
         """
+
+        # TODO: slet denne hvis den nye main funger
 
         # Load pretrained network
         self.load_state_dict(torch.load(net_path))
@@ -178,11 +181,17 @@ class Swag(Net):
                D_hat: approximate sample covarinance 1D
         return: parameters in vector shape
         """
-        Sigma_diag_squared = torch.diag(Squared_matrix(abs(self.sigma_vec))) # TODO: Det går vel ikke rigtigt at tage abs???
-        z1 = MultivariateNormal(torch.zeros(self.p), scale_tril=torch.diag(torch.ones(self.p)))
+        #torch.smm
+
+       #Sigma_diag_squared = torch.diag(Squared_matrix(abs(self.sigma_vec))) # TODO: Det går vel ikke rigtigt at tage abs???
+
+        indices = [list(np.arange(self.p)), list(np.arange(self.p))]
+        Sigma_diag_squared = torch.sparse_coo_tensor(indices, Squared_matrix(abs(self.sigma_vec)), (self.p, self.p))
+        z1 = torch.empty(self.p)
         z2 = MultivariateNormal(torch.zeros(self.K), scale_tril=torch.diag(torch.ones(self.K)))
+
         # Sample weight from posterior
-        param_sample = self.theta_swa + 1 / (2 ** (1 / 2)) * torch.matmul(Sigma_diag_squared, z1.sample()) + 1 / (
+        param_sample = self.theta_swa + 1 / (2 ** (1 / 2)) * torch.smm(Sigma_diag_squared, z1.normal_().unsqueeze(-1)).to_dense().squeeze() + 1 / (
                     (2 * (self.K - 1)) ** (1 / 2)) * torch.matmul(torch.cat(self.D_hat, dim=1), z2.sample())
 
         return param_sample

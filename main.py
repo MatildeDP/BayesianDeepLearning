@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 
 def main_deterministic(batch_size, num_epochs, hidden_dim, input_dim, output_dim, learning_rate, net_path, opti_path,
-                       data, loaders, load_pretrained=True, save_model=False):
+                       data, loaders,l2, momentum, load_pretrained=True, save_model=False):
     # Print information
     print(
         "Running deterministic network with following settings: \n Batch size: %s  \n Number of epochs: %s \n Network dimensions: %s" % (
@@ -27,7 +27,7 @@ def main_deterministic(batch_size, num_epochs, hidden_dim, input_dim, output_dim
     # Define model etc.
     model = Deterministic_net(input_dim, hidden_dim, output_dim)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=5 * 10 ** (-4),
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, weight_decay=l2, momentum=momentum,
                                 nesterov=False)
 
     # Load pretrained
@@ -41,10 +41,10 @@ def main_deterministic(batch_size, num_epochs, hidden_dim, input_dim, output_dim
                                            opti_path=opti_path)
 
     # Final plots
-    #decision_path = "/Deterministic/Decision_hidden" + str(hidden_dim) + "_Lr" + str(learning_rate)+ ".jpg"
+    decision_path = "/Deterministic/Decision_hidden" + str(hidden_dim) + "_Lr" + str(learning_rate)+ ".jpg"
     loss_path = "/Deterministic/Loss_accu_MNIST_hidden" + str(hidden_dim) + "_Lr" + str(learning_rate) +".jpg"
     #plot_decision_boundary(model, dataloader = test_loader, S = 20, title="Decision boundary with test points on trained model",
-                           #save_image_path=decision_path)
+     #                   save_image_path=decision_path)
     plot_acc_and_loss(testloss=test_loss, trainloss=train_loss, accuracy=acc, save_path=loss_path)
 
 
@@ -75,9 +75,9 @@ def main_swag(batch_size, num_epochs, hidden_dim, learning_rate, c, K, S,data, l
          #Final plots
         decision_path = "SWAG/Decision_K" + str(K) + '_c' + str(c) + "_batch" + str(batch_size) + "_epochs" + str(
             num_epochs) + "_lr" + str(learning_rate) + ".jpg"
-        plot_decision_boundary(model, test_loader, S=S,
-                               title="Final SWAG with test points", predict_func='stochastic',
-                               save_image_path=decision_path)
+        #plot_decision_boundary(model, test_loader, S=S,
+                               #title="Final SWAG with test points", predict_func='stochastic',
+                               #save_image_path=decision_path)
 
         loss_path = "SWAG/Loss_accu_MNIST_K" + str(K) + '_c' + str(c) + "_batch" + str(batch_size) + "_epochs" + str(
             num_epochs) + "_lr" + str(learning_rate) + ".jpg"
@@ -105,31 +105,23 @@ def settings(data):
 if __name__ == '__main__':
 
     # Get mnist back in shape reshape(-1,1,28,28), reshape(-1, 28*28)
-
     run = 'swag'
     which_data = 'mnist'
 
     # Parameters
-    """
-    batch_size = 16 # [8, 16, 32, 64, 128] 8 eller 16!!
-    num_epochs = 1000
-    input_dim = 2
-    hidden_dim = 50
-    output_dim = 2
-    learning_rate = 1.3
-    noise = 0.3    """
-
     batch_size = 128
-    num_epochs = 11 # må ikke være mindre end K for SWAG
-    hidden_dim = 100
-    learning_rate = 0.1
+    num_epochs = 100 # må ikke være mindre end K for SWAG
+    hidden_dim = 500
+    learning_rate = 0.001
     l2_param = 0.001
+    momentum = 0.9
 
-    #net_path = 'models/two_moons/NN_5.pth'
-    #opti_path = 'Optimizers/two_moons/Opti_5.pth'
 
-    net_path = 'models/MNIST/NN_100.pth'
-    opti_path = 'Optimizers/MNIST/Opti_100.pth'
+    net_path = 'models/MNIST/NN_500.pth'
+    opti_path = 'Optimizers/MNIST/Opti_500.pth'
+
+    #net_path = 'models/MNIST/NN_100.pth'
+    #opti_path = 'Optimizers/MNIST/Opti_100.pth'
 
     # Parameters for deterministic
     load_pretrained = False
@@ -156,7 +148,7 @@ if __name__ == '__main__':
         main_deterministic(batch_size = batch_size, num_epochs=num_epochs, hidden_dim=hidden_dim,
                            input_dim = input_dim, output_dim = output_dim, learning_rate = learning_rate,
                            net_path = net_path, opti_path = opti_path,
-                           data = data, loaders = loaders, load_pretrained=load_pretrained, save_model=save_model)
+                           data = data, loaders = loaders, load_pretrained=load_pretrained, save_model=save_model, momentum = momentum, l2 = l2_param)
 
     # Run SWAG
     elif run == 'swag':
@@ -164,3 +156,11 @@ if __name__ == '__main__':
                   c = c, K=K, S = S, data = data, loaders= loaders,net_path = net_path, opti_path = opti_path,
                   l2_param=l2_param, input_dim = input_dim, output_dim=output_dim)
 
+    """
+    batch_size = 16 # [8, 16, 32, 64, 128] 8 eller 16!!
+    num_epochs = 1000
+    input_dim = 2
+    hidden_dim = 50
+    output_dim = 2
+    learning_rate = 1.3
+    noise = 0.3    """

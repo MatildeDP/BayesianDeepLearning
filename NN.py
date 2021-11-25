@@ -18,13 +18,16 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, output_dim)
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.5)
 
 
     def forward(self, x):
 
         x = self.fc1(x)
+        x = self.dropout(x)
         x = self.relu(x)
         x = self.fc2(x)
+        x = self.dropout(x)
         x = self.relu(x)
         x = self.fc3(x)
 
@@ -32,7 +35,7 @@ class Net(nn.Module):
 
     def predict(self, X):
         s = nn.Softmax(dim=1)
-        score = self(X.float())
+        score = self(X)
         probs = s(score)
         pred = torch.max(probs, 1).indices
 

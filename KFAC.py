@@ -16,7 +16,7 @@ from BMA import monte_carlo_bma
  # Hidden units, hidden layers, batch size, L2 parameter, momentum
 
 class KFAC(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim, optimizer, L):#, scheduler):
+    def __init__(self, input_dim, hidden_dim, output_dim, optimizer, lr, momentum,l2_param, L):#, scheduler):
         super().__init__(input_dim, hidden_dim, output_dim)
 
         self.layers = {1: self.fc1, 2: self.fc2, 3: self.fc3}
@@ -29,11 +29,15 @@ class KFAC(Net):
         self.grads = {i: 0 for i in range(1, L + 1)}  # gradients for each layer running sum
         self.dedh3 = 0
 
-        self.optimizer = optimizer
-        #self.scheduler = scheduler
         self.criterion = nn.CrossEntropyLoss()
-        self.relu2 = nn.LeakyReLU(negative_slope=0.001)
+        self.optimizer = optimizer
+        for g in self.optimizer.param_groups:
+            g['weight_decay'] = l2_param
+            g['lr'] = learning_rate
+            g['momentum'] = momentum
 
+
+        self.relu2 = nn.ReLU()
 
         # Backward hooks
         self.relu.register_backward_hook(self.save_activation_grads(1))
@@ -154,6 +158,7 @@ class KFAC(Net):
 
     def load_model(self, net_path):
         self.load_state_dict(torch.load(net_path))
+        self.optimizer.load_state_dict(torch.load(opti_path))
 
     def cross_entropy_loss_binary(self, correct, rest):
         """
@@ -181,6 +186,7 @@ class KFAC(Net):
         return functional.hessian(func, input)
 
     def collect_values(self, data):
+        loss_ave = 0
         """
         Collects running average Q and H for each layer
         """
@@ -191,6 +197,10 @@ class KFAC(Net):
             # Clear gradients w.r.t. parameters
             self.optimizer.zero_grad()
 
+            # Normalise data
+            #Xtrain = (Xtrain -torch.mean(Xtrain))/torch.std(Xtrain)
+
+
             # store x = a0
             self.__setitem__([('a0', a0.detach()) for a0 in Xtrain][0])
 
@@ -199,7 +209,10 @@ class KFAC(Net):
 
             # Calculate Loss
             loss = self.criterion(outputs, ytrain)
-            # loss_ave = (loss_ave * i + loss.item()) / (i + 1)
+            loss_ave = (loss_ave * i + loss.item()) / (i + 1)
+
+            if i % 100 == 0:
+                print('Number of data points: %s        loss: %s' % (i, loss_ave))
 
             # Getting gradients w.r.t. parameters
             loss.backward()
@@ -210,29 +223,9 @@ class KFAC(Net):
 
         a = 123
 
-    def compute_q_old(self):
-        """
-        Computes the covariance of the activations
 
-        """
 
-        for Lambda, item in self.a.items():
-            length = item[0][1]
-            temp = torch.zeros(len(length), len(length))
-            n = 0
 
-            if len(length.shape) == 1:  # if data is an 1D array
-                for _, act in item:
-                    vec1 = torch.unsqueeze(act, 1)
-                    vec2 = torch.unsqueeze(act, 0)
-                    temp = (temp * n + torch.matmul(vec1, vec2)) / (n + 1)
-                    n += 1
-
-                self.Q[Lambda + 1] = [temp]
-                Lambda += 1
-            else:  # if data is not a N dimensional array
-                pass
-                # TODO: implement for higher dimensional data
 
     def compute_Q(self, n):
         """
@@ -241,8 +234,12 @@ class KFAC(Net):
         :return: Covariance matrix of the activations
         """
         for Lambda in self.Q.data.keys():
-            self.Q[Lambda] = (self.Q[Lambda] * n + torch.matmul(
-                torch.cat((torch.unsqueeze(self.a[Lambda - 1][1], 1), torch.tensor([[1]])), 0),
+            self.Q[Lambda] = (self.Q[Lambda] * n +
+                            torch.matmul(
+                            torch.cat(
+                            (torch.unsqueeze(self.a[Lambda - 1][1], 1),
+                            torch.tensor([[1]])),
+                            0),
                 torch.cat((torch.unsqueeze(self.a[Lambda - 1][1], 0),
                            torch.tensor([[1]])), 1))) / (n + 1)
 
@@ -326,6 +323,7 @@ class KFAC(Net):
         """
         :return: weight samples
         """
+        # TODO: gør vægte til float, ikke doubles
 
         # Initialise sample dict
         samples = {Lambda: None for Lambda in range(1, self.L + 1)}
@@ -350,60 +348,61 @@ class KFAC(Net):
             self.layers[idx].bias.data = torch.squeeze(torch.tensor(sampled_weights[idx][:, w_idx[1]:]))
 
 
+def settings(data):
+    if data == 'two_moons':
+        input_dim = 2
+        output_dim = 2
 
-from data import DataLoaderInput
+    if data == 'mnist':
+        input_dim = 784
+        output_dim = 10
+
+    return input_dim, output_dim
+
+from data import DataLoaderInput, LoadDataSet
 
 if __name__ == '__main__':
-    input_dim = 2
-    hidden_dim = 5
-    output_dim = 2
 
-    #momentum = 0.01
-    tau = 0.1
-    noise = 0.7
-    S = 30
-    C = 2
-    #decayRate = 0.2
+    which_data = 'two_moons'
+    hidden_dim = 30
+    tau = 0.01
+    noise = 0.3
+    S = 10
+    C = 10 # number of classes
+    learning_rate = 0.001
+    l2_param = 0.001
+    momentum = 0.9
 
+    net_path = 'models/two_moons/NN_30_KFAC.pth'
+    opti_path = 'Optimizers/two_moons/Opti_30_KFAC.pth'
+    input_dim, output_dim = settings(which_data)
 
-    net_path = 'models/NN_5_KFAC.pth'
-    opti_path = 'Optimizers/Opti_5_KFAC.pth'
+    # Load data
+    Dataset = LoadDataSet(which_data)
+    Xtrain, ytrain, train_loader = Dataset.load_training_data(batch_size = 1, noise = noise, n_samples=1000)#, n_samples=1000)
+    Xtest, ytest, test_loader = Dataset.load_test_data(batch_size = 1, noise=noise, n_samples=100)#, n_samples=1000)
+
+    data = (Xtrain, ytrain, Xtest, ytest)
+    loaders = (train_loader, test_loader)
 
     model = Deterministic_net(input_dim, hidden_dim, output_dim)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0)#, momentum = momentum)
-    model.load_state_dict(torch.load(net_path))  # TODO load model
-    optimizer.load_state_dict(torch.load(opti_path))  # TODO load model
-    #scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=decayRate)
+    #model.load_state_dict(torch.load(net_path))  # TODO load model
+    #optimizer.load_state_dict(torch.load(opti_path))  # TODO load model
 
-
-    train_dataset = make_moons(n_samples=1000, noise=noise, random_state=3)
-    Xtrain, ytrain = train_dataset
-    Xtrain = torch.tensor(Xtrain)
-    ytrain = torch.tensor(ytrain)
-
-    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(Xtrain, ytrain),
-                                               batch_size=1,
-                                               shuffle=True)
-
-    test_dataset = make_moons(n_samples=100, noise=noise, random_state=5)
-    Xtest, ytest = test_dataset
-    Xtest = torch.tensor(Xtest)
-    ytest = torch.tensor(ytest)
-
-    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(Xtrain, ytrain),
-                                              batch_size=1,
-                                              shuffle=False)
 
     # plot_decision_boundary(model=model, X=train_loader.dataset.X, y=train_loader.dataset.y, title="Pretrained")
 
-    kfac_model = KFAC(input_dim, hidden_dim, output_dim, optimizer, L = 3)#, scheduler =scheduler )  # initialise class
+    kfac_model = KFAC(input_dim, hidden_dim, output_dim, optimizer, lr =learning_rate ,
+                      momentum = momentum,l2_param = l2_param, L = 3)#, scheduler =scheduler )  # initialise class
+
     kfac_model.load_model(net_path)  # TODO load model
     kfac_model.collect_values(train_loader)
-    kfac_model.regularize_and_add_prior(tau=tau, N=len(train_loader))
+    kfac_model.regularize_and_add_prior(tau=tau, N=50)
 
     # Plot decision boundary
-    plot_decision_boundary(kfac_model, dataloader=test_loader, S = 20, title="", predict_func='stochastic', save_image_path="")
+    #plot_decision_boundary(kfac_model, dataloader=test_loader, S = 20, title="", predict_func='stochastic', save_image_path="")
 
     # Get accuracy
     p_yxw, p_yx, accuracy, all_loss = monte_carlo_bma(kfac_model, Xtest, ytest, S = S, C = C)

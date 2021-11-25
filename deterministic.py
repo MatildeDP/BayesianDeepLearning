@@ -29,11 +29,6 @@ class Deterministic_net(Net):
             # Update parameters
             optimizer.step()
 
-
-        # if epoch % 30 == 0:
-        # plot decision boundary with train data
-        # plot_decision_boundary(model, Xtrain,  ytrain, title = "Decision boundary with train points during training")
-
         if save_net:
             torch.save(self.state_dict(),  net_path)
             torch.save(optimizer.state_dict(), opti_path)
@@ -48,7 +43,7 @@ class Deterministic_net(Net):
         # Iterate through test dataset
         for j, (Xtest, ytest) in enumerate(test_loader):
 
-            probs, score, pred = self.predict(Xtest)
+            probs, score, pred = self.predict(Xtest.float())
             all_probs.append(probs)
 
             # Loss
@@ -74,6 +69,8 @@ class Deterministic_net(Net):
 
         return accuracy, loss_ave, all_probs
 
+
+# TODO: Slet denne hvis den nye main virker
     def run(self, num_epochs, test_loader, train_loader, criterion, optimizer, save_net = True, net_path = '', opti_path = ''):
 
         """

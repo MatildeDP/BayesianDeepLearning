@@ -35,7 +35,7 @@ class LoadDataSet:
         self.dataset = dataset
         self.transform = transforms.Compose([transforms.ToTensor(), transforms.Resize([1,784])])
 
-    def load_training_data(self, batch_size, noise=None, n_samples=1000):
+    def load_training_data(self, batch_size, noise=None, n_samples=60000):
 
         if self.dataset == 'two_moons':
             train_dataset = make_moons(n_samples=n_samples, noise=noise, random_state=3)
@@ -48,10 +48,16 @@ class LoadDataSet:
             train_data = datasets.MNIST(
                 root='data',
                 train=True,
-                transform=transforms.ToTensor(),
+                #transform= #transforms.Normalize((0.1307,), (0.3081,)),
                 download=True)
 
-            Xtrain, ytrain = train_data.data.reshape(-1, 28*28), train_data.targets
+            # flatten
+            Xtrain, ytrain = train_data.data.reshape(-1, 28*28)[:n_samples,:].float(), train_data.targets[:n_samples]
+
+            # normalise
+            Xtrain = (Xtrain - torch.mean(Xtrain)) / torch.std(Xtrain)
+
+            # dataloader
             train_data = DataLoaderInput(Xtrain, ytrain)
 
         # Create dataloader object
@@ -73,11 +79,11 @@ class LoadDataSet:
         elif self.dataset == "mnist":
             test_data = datasets.MNIST(
                 root='data',
-                train=False,
-                transform=transforms.ToTensor()
+                train=False
             )
 
-            Xtest, ytest = test_data.data.reshape(-1, 28*28), test_data.targets
+            Xtest, ytest = test_data.data.reshape(-1, 28*28).float(), test_data.targets
+            Xtest = (Xtest-torch.mean(Xtest))/torch.std(Xtest)
             test_data = DataLoaderInput(Xtest, ytest)
 
 
