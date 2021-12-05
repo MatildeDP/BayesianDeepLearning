@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from copy import deepcopy
 from BMA import monte_carlo_bma
+import json
 from scipy.linalg import fractional_matrix_power
 
 
@@ -65,7 +66,7 @@ def plot_acc_and_loss(testloss, trainloss, accuracy, save_path, save_image_path 
     axes[1].set_ylabel('Accuracy')
 
     if save_image_path:
-        plt.savefig("Plots/" + save_path)
+        plt.savefig(save_path)
 
     plt.show()
     plt.close()
@@ -101,7 +102,7 @@ def compare_parameter_loss_plot(trainloss, testloss, param, num_epochs, save_pat
     axes[1].set_ylabel('Accuracy')
 
     if save_path:
-        plt.savefig("Plots/" + save_path)
+        plt.savefig(save_path)
 
     plt.show()
 
@@ -124,12 +125,8 @@ def plot_decision_boundary(model, dataloader, S, title="", predict_func = 'predi
         probs_grid, _, _ = model.predict(torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
 
     elif predict_func == 'stochastic':
-        #probs_grid, _, _ = bma(model, S = 20, Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest = 0, criterion = 0, test = False)
-        probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True)
-    #elif predict_func == 'kfac':
-        #probs_grid = model.monte_carlo_bma(Xtest = torch.tensor(np.c_[xx.ravel(), yy.ravel()]), ytest=0, S = 20, C = 2 ,forplot = True)
 
-    #probs_grid = monte_carlo_bma(model, Xtest = X, ytest = y, S = S, C = 2, forplot=True)
+        probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True)
 
     probs0_grid = probs_grid.detach().numpy()[:, 1]
     probs0_grid = probs0_grid.reshape(xx.shape)
@@ -145,15 +142,11 @@ def plot_decision_boundary(model, dataloader, S, title="", predict_func = 'predi
     plt.ylabel = ("$X_2$")
     plt.title(title)
 
-
     if save_image_path:
-        plt.savefig("Plots/" + save_image_path)
+        plt.savefig(save_image_path)
 
     plt.show()
     plt.close()
-
-
-
 
 
 def Squared_matrix(D, is_diagonal = True):
@@ -172,4 +165,27 @@ def Squared_matrix(D, is_diagonal = True):
             return new
 
 
+
+def dump_to_json(PATH, dict):
+    with open(PATH, 'w') as fp:
+        json.dump(dict, fp)
+
+
+
+def dump_to_existing_json(PATH, dict):
+    with open(PATH, "r+") as file:
+        data = json.load(file)
+        data.update(dict)
+        file.seek(0)
+        json.dump(data, file)
+
+
+def json_add_values_to_key(PATH, dict):
+    with open(PATH, "r+") as file:
+        data = json.load(file)
+
+        for key, val in dict:
+            data[key].append(val)
+        file.seek(0)
+        json.dump(data, file)
 

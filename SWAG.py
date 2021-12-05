@@ -38,6 +38,8 @@ class Swag(Net):
 
         self.output_dim = output_dim
 
+        self.dims = (input_dim, hidden_dim, output_dim)
+
 
     def get_ith_moments(self):
         # Extract flattened parameters
@@ -54,67 +56,6 @@ class Swag(Net):
             self.D_hat.pop(0)  # remove first item
         self.D_hat.append(torch.unsqueeze(theta1_i - theta1, 1))
 
-    def run_swag(self, net_path, opti_path, train_loader, test_loader, Xtest, ytest):
-        """
-        :param: net_path: Path to pre trained net
-        :param: opti_path: Path to optimizer for pretrained net
-
-        :return: m: SWA means in 1D
-                Sigma_diag: sample vairances 1D
-                D_hat: approximate sample covarinance 1D
-
-
-        Stochastic weight average  - Gaussian
-        """
-
-        # TODO: slet denne hvis den nye main funger
-
-        # Load pretrained network
-        self.load_state_dict(torch.load(net_path))
-        self.optimizer.load_state_dict(torch.load(opti_path))
-
-        # Alter parameters
-        for g in self.optimizer.param_groups:
-            g['weight_decay'] = self.l2_param
-            g['lr'] = self.learning_rate
-
-        # plot pretrained network
-        #plot_decision_boundary(model = self, dataloader=train_loader,S = 20, title="Pretrained")
-
-        # Extract initial weights
-        theta1, theta2 = self.get_ith_moments()
-
-        # Initialize error and accuracy container
-        test_loss, train_loss, all_acc = [], [], []
-        n = 0
-
-        # Run T epoch of training and testing
-        for i in range(self.num_epochs):
-
-            # Train swag
-            n, theta1, theta2, loss_ = self.train_swag(epoch=i, n=n, theta1=theta1, theta2=theta2, train_loader = train_loader, test_loader=test_loader)
-
-            # Collect train loss
-            train_loss.append(loss_)
-
-            # Test current SWAG model (if D hat has rank K)
-            if len(self.D_hat) == self.K:
-                self.theta_swa = theta1.clone().detach()
-                self.sigma_vec = theta2 - theta1 ** 2
-                p_yxw, p_yx, acc, loss = monte_carlo_bma(model = self, S = self.S, Xtest=Xtest, ytest=ytest, C = self.output_dim)
-                # collect test loss and accuracy
-                test_loss.append(sum(loss) / len(loss))
-                all_acc.append(sum(acc) / len(acc))
-
-            else:
-                test_loss.append(0)
-                all_acc.append(0)
-
-        # Update class values
-        self.theta_swa = theta1.clone().detach()
-        self.sigma_vec = theta2 - theta1 ** 2
-
-        return train_loss, test_loss, all_acc
 
     def train_swag(self, epoch, n, theta1, theta2, train_loader, test_loader):
         """
@@ -143,8 +84,8 @@ class Swag(Net):
 
             # Update loss average
             loss_ave = (loss_ave * j + loss.item()) / (j + 1)
-            if j == 0:
-                print("Running loss average: %s" %loss_ave)
+            #if j == 0:
+            #    print("Running loss average: %s" %loss_ave)
 
         # Update moments with frequency c
         if epoch % self.c == 0 and epoch != 0:
@@ -169,9 +110,11 @@ class Swag(Net):
                 self.updateD(theta1_i, theta1)
 
         #  Plot every 100th epoch
-        if epoch % 10000 == 0 and len(self.D_hat) == self.K:
-            title = "Epoch: " + str(epoch) + " \n Moments computed " + str(n) + " times."
-            plot_decision_boundary(model=self, dataloader = test_loader, title =title, predict_func='stochastic')
+        #if epoch % 50 == 0 and len(self.D_hat) == self.K:
+           # title = "Epoch: " + str(epoch) + " \n Moments computed " + str(n) + " times."
+
+
+            #plot_decision_boundary(model=self, dataloader = test_loader, title ='%s' %epoch, predict_func='stochastic', S = 10)
         return n, theta1, theta2, loss_ave
 
     def sample_from_posterior(self):
@@ -197,7 +140,9 @@ class Swag(Net):
         return param_sample
 
     def replace_network_weights(self, sampled_weights):
-        nn.utils.vector_to_parameters(sampled_weights, self.parameters())
+        net = Net(self.dims[0], self.dims[1], self.dims[2])
+        nn.utils.vector_to_parameters(sampled_weights, net.parameters())
+        return net
 
 
 

@@ -6,7 +6,7 @@ from NN import Net
 class Deterministic_net(Net):
     def __init__(self, input_dim, hidden_dim, output_dim, lr_scheduler = None):
         super().__init__(input_dim, hidden_dim, output_dim)
-        self.lr_scheduler = lr_scheduler
+
 
     def train_net(self, train_loader, optimizer, criterion, save_net = True, net_path = '', opti_path = ''):
         loss_ave = 0
@@ -34,7 +34,7 @@ class Deterministic_net(Net):
             torch.save(optimizer.state_dict(), opti_path)
 
 
-        return optimizer, criterion, loss_ave
+        return optimizer, loss_ave
 
     def test_net(self, test_loader, criterion, freq=0, epoch='', plot=False):
         self.eval()
@@ -68,41 +68,3 @@ class Deterministic_net(Net):
         self.train()
 
         return accuracy, loss_ave, all_probs
-
-
-# TODO: Slet denne hvis den nye main virker
-    def run(self, num_epochs, test_loader, train_loader, criterion, optimizer, save_net = True, net_path = '', opti_path = ''):
-
-        """
-        Trains determnistic neural netowrk with structure defined by NN.Net
-        :param num_epochs: Number of epochs to run
-        :param test_loader: dataloader with test data
-        :param train_loader: dataloader with train data
-        :param criterion: nn loss
-        :param optimizer: torch optim optimizer
-        :param save_net: Boolean value
-        :param net_path: Path to save net to
-        :param opti_path: Path to save optimizer to
-        :return: train_loss, test_loss and accuracy
-        """
-        test_loss = []
-        train_loss = []
-        acc = []
-        for epoch in range(num_epochs):
-            # Train
-            optimizer, criterion, train_loss_ = self.train_net(train_loader, optimizer, criterion, save_net = save_net, net_path = net_path, opti_path = opti_path)
-
-            # Test
-            accuracy, tst_loss, _ = self.test_net(test_loader, criterion, freq=30, epoch=epoch)
-
-            # Collect loss
-            train_loss.append(float(train_loss_))
-            test_loss.append(float(tst_loss.detach().numpy()))
-            acc.append(accuracy)
-
-            if epoch % 1 == 0:
-                print(
-                    'Iteration: {}. Test Loss: {}. Train Loss: {}. Accuracy: {}'.format(epoch, tst_loss.item(), train_loss_,
-                                                                                        accuracy))
-
-        return train_loss, test_loss, acc

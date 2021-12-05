@@ -12,7 +12,7 @@ from copy import copy
 
 
 class Net(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, data = ''):
+    def __init__(self, input_dim, hidden_dim, output_dim):
         super(Net, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
@@ -40,6 +40,5 @@ class Net(nn.Module):
         pred = torch.max(probs, 1).indices
 
         return probs, score, pred
-
 
 
