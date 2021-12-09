@@ -1,10 +1,5 @@
 import torch
 import torch.nn as nn
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from utils import plot_decision_boundary
-from copy import copy
 
 
 
@@ -19,24 +14,38 @@ class Net(nn.Module):
         self.fc3 = nn.Linear(hidden_dim, output_dim)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
+        self.s = nn.Softmax(dim=1)
+
 
 
     def forward(self, x):
+        """"
+        :param x:
+        :return:
+        """
 
         x = self.fc1(x)
-        x = self.dropout(x)
+        #x = self.dropout(x)
         x = self.relu(x)
         x = self.fc2(x)
-        x = self.dropout(x)
+        #x = self.dropout(x)
         x = self.relu(x)
         x = self.fc3(x)
 
         return x
 
-    def predict(self, X):
-        s = nn.Softmax(dim=1)
-        score = self(X)
-        probs = s(score)
+    def predict(self, X, temp):
+
+        """
+        temp should only be different from 1 on test phase
+        :param X:
+        :param temp:
+        :return:
+        """
+
+        score = self(X) # calibrating
+        score = score/temp
+        probs = self.s(score)
         pred = torch.max(probs, 1).indices
 
         return probs, score, pred

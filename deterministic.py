@@ -4,7 +4,7 @@ from NN import Net
 
 
 class Deterministic_net(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim, lr_scheduler = None):
+    def __init__(self, input_dim, hidden_dim, output_dim):
         super().__init__(input_dim, hidden_dim, output_dim)
 
 
@@ -36,35 +36,44 @@ class Deterministic_net(Net):
 
         return optimizer, loss_ave
 
-    def test_net(self, test_loader, criterion, freq=0, epoch='', plot=False):
-        self.eval()
+    def test_net(self, test_loader, criterion, temp, freq=0, epoch='', plot=False):
+
+        """
+        :param test_loader: test data in toech dataloader structure
+        :param criterion: nn loss function
+        :param temp: temperature scala for calibration
+        :param freq: How often decision plots should be plotted
+        :param epoch: current epoch
+        :param plot: whether to plot or not (bool)
+        :return:
+        """
         loss_ave, accuracy = 0, 0
         all_probs = []
+
         # Iterate through test dataset
-        for j, (Xtest, ytest) in enumerate(test_loader):
+        with torch.no_grad():
+            for j, (Xtest, ytest) in enumerate(test_loader):
 
-            probs, score, pred = self.predict(Xtest.float())
-            all_probs.append(probs)
+                probs, score, pred = self.predict(Xtest.float(), temp=temp)
+                all_probs.append(probs)
 
-            # Loss
-            loss = criterion(score, ytest)
-            loss_ave = (loss_ave * j + loss) / (j + 1)
+                # Loss
+                loss = criterion(score, ytest)
+                loss_ave = (loss_ave * j + loss) / (j + 1)
 
-            # Accuracy
-            correct = (pred == ytest).sum() / len(ytest)
-            accuracy = (accuracy * j + correct) / (j + 1)
+                # Accuracy
+                correct = (pred == ytest).sum() / len(ytest)
+                accuracy = (accuracy * j + correct) / (j + 1)
 
-            # plot decision boundary
-            if plot:
-                if type(epoch) == str:
-                    plot_decision_boundary(self, Xtest, ytest, title="Decision boundary with test points")
+                # plot decision boundary
+                #if plot:
+                #    if type(epoch) == str:
+                #        plot_decision_boundary(self, Xtest, ytest, title="Decision boundary with test points")
 
-                elif epoch % freq == 0 and j == 0:
-                    plot_decision_boundary(self, Xtest, ytest,
-                                           title="Decision boundary with test points: epoch %s" % epoch)
+                 #   elif epoch % freq == 0 and j == 0:
+                 #       plot_decision_boundary(self, Xtest, ytest,
+                #                               title="Decision boundary with test points: epoch %s" % epoch)
 
-        all_probs = torch.cat(all_probs, dim=0)
-
-        self.train()
+            all_probs = torch.cat(all_probs, dim=0)
 
         return accuracy, loss_ave, all_probs

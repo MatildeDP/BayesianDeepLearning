@@ -93,10 +93,10 @@ class LoadDataSet:
 
         return Xtest, ytest, test_loader
 
-    def load_data_for_CV(self, n_samples=1000, noise=0.3):
+    def load_data_for_CV(self, n_samples=3000, noise=0.3):
         if self.dataset == 'two_moons':
-            train_data = make_moons(n_samples=n_samples, noise=noise, random_state=3)
-            test_data = make_moons(n_samples=n_samples, noise=noise, random_state=3)
+            train_data = make_moons(n_samples=n_samples, noise=noise, random_state=0)
+            test_data = make_moons(n_samples=n_samples, noise=noise, random_state=0)
 
             Xtest, ytest = test_data
             Xtest, ytest = torch.tensor(Xtest, dtype=torch.float32), torch.tensor(ytest)

@@ -1,15 +1,12 @@
-from deterministic import Deterministic_net
+
 import torch.nn as nn
 import torch
-from sklearn.datasets import make_moons
 from NN import Net
 from torch.autograd import functional
 from torch import matmul as matmul
 from scipy.stats import matrix_normal
 from torch import inverse
 from utils import plot_decision_boundary
-from BMA import monte_carlo_bma
-from data import DataLoaderInput, LoadDataSet
 
 
 
@@ -17,12 +14,13 @@ from data import DataLoaderInput, LoadDataSet
  # Hidden units, hidden layers, batch size, L2 parameter, momentum
 
 class KFAC(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim, lr, momentum,l2_param, L):#, scheduler):
+    def __init__(self, input_dim, hidden_dim, output_dim, momentum,l2_param, L):
         super().__init__(input_dim, hidden_dim, output_dim)
 
         self.layers = {1: self.fc1, 2: self.fc2, 3: self.fc3}
         self.diff = {1: 'relu', 2: 'relu'}
         self.L = L
+        self.dims = (input_dim, hidden_dim, output_dim)
 
         self.a = {i: [] for i in range(L)}  # activation dict running sum
         self.a_grad = {i: [] for i in range(1, L + 1)}
@@ -30,9 +28,7 @@ class KFAC(Net):
         self.grads = {i: 0 for i in range(1, L + 1)}  # gradients for each layer running sum
         self.dedh3 = 0
 
-        self.criterion = nn.CrossEntropyLoss()
         self.l2_param = l2_param
-        self.lr = lr
         self.momentum = momentum
 
         self.relu2 = nn.ReLU()
@@ -180,14 +176,14 @@ class KFAC(Net):
         """
         return functional.hessian(func, input)
 
-    def collect_values(self, data, optimizer):
+    def collect_values(self, data, optimizer, criterion, temp):
         loss_ave = 0
         """
         Collects running average Q and H for each layer
         """
         # Plot pretrained net
         if data.dataset.X.shape[1] == 2:
-            plot_decision_boundary(model=self, dataloader=data, S=10, title="Pretrained")
+            plot_decision_boundary(model=self, dataloader=data, S=10, title="Pretrained", temp = temp)
 
         # collect MAP estimate of weights
         self.collectWstar()
@@ -203,7 +199,7 @@ class KFAC(Net):
             outputs = self(Xtrain)
 
             # Calculate Loss
-            loss = self.criterion(outputs, ytrain)
+            loss = criterion(outputs, ytrain)
             loss_ave = (loss_ave * i + loss.item()) / (i + 1)
 
             if i % 100 == 0:
@@ -215,6 +211,8 @@ class KFAC(Net):
             # Compute Q and H
             self.compute_Q(n=i)
             self.compute_H(Lambda=1, n=i)
+
+        return loss_ave
 
 
     def compute_Q(self, n):
@@ -330,6 +328,8 @@ class KFAC(Net):
 
 
     def replace_network_weights(self, sampled_weights):
+
+
         # Replace network weights with sampled weights
         for idx in range(1, len(self.layers) + 1):
             w_idx = self.layers[idx].weight.shape
@@ -337,28 +337,7 @@ class KFAC(Net):
             self.layers[idx].weight.data = torch.tensor(sampled_weights[idx][:, :w_idx[1]]).float()
             self.layers[idx].bias.data = torch.squeeze(torch.tensor(sampled_weights[idx][:, w_idx[1]:])).float()
 
-
-def settings(data):
-    if data == 'two_moons':
-        input_dim = 2
-        output_dim = 2
-
-    if data == 'mnist':
-        input_dim = 784
-        output_dim = 10
-
-    return input_dim, output_dim
+        return None
 
 
-
-
-
-if __name__ == '__main__':
-
-    which_data = 'two_moons'
-    net_path = 'models/two_moons/NN_30_KFAC.pth'
-    opti_path = 'Optimizers/two_moons/Opti_30_KFAC.pth'
-
-
-    KFAC_approx(which_data, net_path, opti_path)
 

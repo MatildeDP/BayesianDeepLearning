@@ -6,7 +6,7 @@ import torch
 from copy import deepcopy
 from BMA import monte_carlo_bma
 import json
-from scipy.linalg import fractional_matrix_power
+import torch.nn as nn
 
 
 def save_net(path, model):
@@ -42,7 +42,8 @@ def scatter(X, y, yhat, epoch):
     sns.scatterplot(ax=axes[0], x=X_[:, 0], y=X_[:, 1], hue=y_, style=y_)
     sns.scatterplot(ax=axes[1], x=X_[:, 0], y=X_[:, 1], hue=yhat_, style=yhat_)
     axes[2].plot(yhat.detach().numpy(), '.')
-    plt.show()
+    #plt.show()
+    plt.close()
 
 
 def plot_acc_and_loss(testloss, trainloss, accuracy, save_path, save_image_path = True):
@@ -65,10 +66,10 @@ def plot_acc_and_loss(testloss, trainloss, accuracy, save_path, save_image_path 
     axes[0].set_ylabel('Loss')
     axes[1].set_ylabel('Accuracy')
 
-    if save_image_path:
-        plt.savefig(save_path)
 
-    plt.show()
+    plt.savefig(save_path)
+
+    #plt.show()
     plt.close()
 
 def compare_parameter_loss_plot(trainloss, testloss, param, num_epochs, save_path = ''):
@@ -104,11 +105,27 @@ def compare_parameter_loss_plot(trainloss, testloss, param, num_epochs, save_pat
     if save_path:
         plt.savefig(save_path)
 
-    plt.show()
+    #plt.show()
+    plt.close()
 
 
 
-def plot_decision_boundary(model, dataloader, S, title="", predict_func = 'predict', save_image_path = ""):
+
+def plot_decision_boundary(model, dataloader, S, temp, path_to_bma='', title="", predict_func = 'predict', save_image_path = "", criterion = nn.CrossEntropyLoss(), sample_new_weights = True):
+
+    """
+    :param model: instance of class build on nn modules. Must have a predict functions
+    :param dataloader: datapoints to be plotted
+    :param S: number of models in BMA approximations
+    :param temp: parameter for temperature scaling
+    :param load_net_path: path to network weights. Path should be to a folder with wanted files
+    :param title: title of plot
+    :param predict_func: deterministic or stochastic
+    :param save_image_path: path to save image to
+    :param criterion: nn loss function
+    :param sample_new_weights: bool. decided whether to sample new weigths or not
+    :return:
+    """
     X = dataloader.dataset.X.clone().detach()
     y = dataloader.dataset.y.clone().detach()
 
@@ -120,13 +137,22 @@ def plot_decision_boundary(model, dataloader, S, title="", predict_func = 'predi
     # Generate a grid of points with distance h between them
     xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
 
-    # Predict the function value for the whole gid
+    # plot decision boundary by sampling new models
     if predict_func == 'predict':
-        probs_grid, _, _ = model.predict(torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32))
+        probs_grid, _, _ = model.predict(torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), temp=temp)
 
-    elif predict_func == 'stochastic':
+    elif sample_new_weights and predict_func == 'stochastic':
 
-        probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True)
+        # Predict function value for grid
+            probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True, temp = temp, criterion = criterion)
+
+    # load saved models
+    elif not sample_new_weights and predict_func == 'stochastic':
+        probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32),
+                                         ytest=0, S=S, C=2, forplot=True, temp=temp, criterion=criterion, save_models = '',
+                                        path_to_bma = path_to_bma)
+
+
 
     probs0_grid = probs_grid.detach().numpy()[:, 1]
     probs0_grid = probs0_grid.reshape(xx.shape)
@@ -137,15 +163,14 @@ def plot_decision_boundary(model, dataloader, S, title="", predict_func = 'predi
     ax = plt.colorbar(contour)
     ax.set_label("$P(y = 1)$")
     ax.set_ticks([0, .25, .5, .75, 1])
-    # plt.scatter(X[:, 0], X[:, 1], c=y, cmap='RdBu')
     plt.xlabel = ("$X_1$")
     plt.ylabel = ("$X_2$")
     plt.title(title)
 
-    if save_image_path:
-        plt.savefig(save_image_path)
+    #if save_image_path:
+    plt.savefig(save_image_path)
 
-    plt.show()
+    #plt.show()
     plt.close()
 
 
@@ -168,24 +193,19 @@ def Squared_matrix(D, is_diagonal = True):
 
 def dump_to_json(PATH, dict):
     with open(PATH, 'w') as fp:
-        json.dump(dict, fp)
+        temp_ = {'key': [dict]}
+        json.dump(temp_, fp)
 
 
 
 def dump_to_existing_json(PATH, dict):
     with open(PATH, "r+") as file:
-        data = json.load(file)
-        data.update(dict)
+
+        temp_ = json.load(file)
+        temp_['key'].append(dict)
         file.seek(0)
-        json.dump(data, file)
+        json.dump(temp_, file)
 
 
-def json_add_values_to_key(PATH, dict):
-    with open(PATH, "r+") as file:
-        data = json.load(file)
 
-        for key, val in dict:
-            data[key].append(val)
-        file.seek(0)
-        json.dump(data, file)
 

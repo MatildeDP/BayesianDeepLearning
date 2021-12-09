@@ -1,0 +1,1 @@
+{"device": "cpu", "train_batch_size": 128, "test_batch_size": 1000, "n_epochs": 5, "seed": 0, "hidden_dim": 200, "save_model": false, "lr": 0.001, "l2": 0.001, "momentum": 0.3}

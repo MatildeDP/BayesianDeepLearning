@@ -8,6 +8,7 @@ import numpy as np
 
 # TODO: Når parametre som skal tunes med "standard" grid search er tunet, skal skal de fixeres (conditioned on dastaset)
  # Hidden units, hidden layers, batch size, L2 parameter, momentum
+
 def update_running_moment(theta, theta_i, n):
     """
     params: theta: tensor
@@ -18,7 +19,7 @@ def update_running_moment(theta, theta_i, n):
     return new
 
 class Swag(Net):
-    def __init__(self, input_dim, hidden_dim, output_dim, K, c, S, criterion, num_epochs, learning_rate, l2_param):
+    def __init__(self, input_dim, hidden_dim, output_dim, K, c, S, criterion, l2_param):
         super().__init__(input_dim, hidden_dim, output_dim)
 
         self.K = int(K)
@@ -27,10 +28,7 @@ class Swag(Net):
         self.S = S
 
         self.criterion = criterion
-        self.optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
-        self.learning_rate = learning_rate
         self.l2_param = l2_param
-        self.num_epochs = num_epochs
 
         self.D_hat = []
         self.theta_swa = torch.tensor([])
@@ -57,7 +55,7 @@ class Swag(Net):
         self.D_hat.append(torch.unsqueeze(theta1_i - theta1, 1))
 
 
-    def train_swag(self, epoch, n, theta1, theta2, train_loader, test_loader):
+    def train_swag(self, epoch, n, theta1, theta2, train_loader, test_loader, optimizer):
         """
         :param epoch: Current epoch number
         :param n: number of updates to theta1, theta2 and Dhat
@@ -72,7 +70,7 @@ class Swag(Net):
         loss_ave = 0
         for j, (Xtrain, ytrain) in enumerate(train_loader):
             # Clear gradients w.r.t. parameters
-            self.optimizer.zero_grad()
+            optimizer.zero_grad()
 
             # Forward pass to get scores
             outputs = self(Xtrain)
@@ -80,7 +78,7 @@ class Swag(Net):
             # SGD update
             loss = self.criterion(outputs, ytrain)  # Cross entropy loss
             loss.backward()  # Gradients
-            self.optimizer.step()  # Update parameters
+            optimizer.step()  # Update parameters
 
             # Update loss average
             loss_ave = (loss_ave * j + loss.item()) / (j + 1)
@@ -109,13 +107,16 @@ class Swag(Net):
                 # Update D_hat
                 self.updateD(theta1_i, theta1)
 
+            self.theta_swa = theta1.clone().detach()
+            self.sigma_vec = theta2 - theta1 ** 2
+
         #  Plot every 100th epoch
-        #if epoch % 50 == 0 and len(self.D_hat) == self.K:
+        #if epoch % 200 == 0 and len(self.D_hat) == self.K:
            # title = "Epoch: " + str(epoch) + " \n Moments computed " + str(n) + " times."
 
 
-            #plot_decision_boundary(model=self, dataloader = test_loader, title ='%s' %epoch, predict_func='stochastic', S = 10)
-        return n, theta1, theta2, loss_ave
+           # plot_decision_boundary(model=self, dataloader = test_loader, title ='%s' %epoch, predict_func='stochastic', S = 10, temp = 1)
+        return n, loss_ave, optimizer, theta1, theta2
 
     def sample_from_posterior(self):
         """
@@ -124,9 +125,6 @@ class Swag(Net):
                D_hat: approximate sample covarinance 1D
         return: parameters in vector shape
         """
-        #torch.smm
-
-       #Sigma_diag_squared = torch.diag(Squared_matrix(abs(self.sigma_vec))) # TODO: Det går vel ikke rigtigt at tage abs???
 
         indices = [list(np.arange(self.p)), list(np.arange(self.p))]
         Sigma_diag_squared = torch.sparse_coo_tensor(indices, Squared_matrix(abs(self.sigma_vec)), (self.p, self.p))
@@ -140,6 +138,11 @@ class Swag(Net):
         return param_sample
 
     def replace_network_weights(self, sampled_weights):
+        """
+        # In order to test during training time, this method defines a new network to test
+        :param sampled_weights: sampled weight from distribution
+        :return:
+        """
         net = Net(self.dims[0], self.dims[1], self.dims[2])
         nn.utils.vector_to_parameters(sampled_weights, net.parameters())
         return net
