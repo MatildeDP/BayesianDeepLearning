@@ -21,6 +21,7 @@ class KFAC(Net):
         self.diff = {1: 'relu', 2: 'relu'}
         self.L = L
         self.dims = (input_dim, hidden_dim, output_dim)
+        self.y_correct = None
 
         self.a = {i: [] for i in range(L)}  # activation dict running sum
         self.a_grad = {i: [] for i in range(1, L + 1)}
@@ -29,7 +30,6 @@ class KFAC(Net):
         self.dedh3 = 0
 
         self.l2_param = l2_param
-        self.momentum = momentum
 
         self.relu2 = nn.ReLU()
 
@@ -74,8 +74,10 @@ class KFAC(Net):
         x.requires_grad = True
 
         h1 = self.fc1(x)
+        #h1 = self.dropout(h1)
         a1 = self.relu(h1)
         h2 = self.fc2(a1)
+        #h2 = self.dropout(h2)
         a2 = self.relu2(h2)  # update activation
         h3 = self.fc3(a2)
 
@@ -147,7 +149,6 @@ class KFAC(Net):
             """
 
             self.a[Lambda] = (mod, out[0].detach())
-
         return hook
 
 
@@ -166,7 +167,9 @@ class KFAC(Net):
         :param scores: Output scores of network. First element MUST be the score of the correct class
         :return: cross entropy loss
         """
-        return -torch.log(torch.exp(scores[0]) / (sum([torch.exp(i) for i in scores[1:]]) + torch.exp(scores[0])))
+
+        #return -torch.log(torch.exp(scores[0]) / (sum([torch.exp(i) for i in scores[1:]]) + torch.exp(scores[0])))
+        return -torch.log(torch.exp(scores[self.y_correct]) / (sum([torch.exp(i) for i in scores])))
 
     def compute_hessian(self, func, input):
         """
@@ -183,12 +186,15 @@ class KFAC(Net):
         """
         # Plot pretrained net
         if data.dataset.X.shape[1] == 2:
-            plot_decision_boundary(model=self, dataloader=data, S=10, title="Pretrained", temp = temp)
+            plot_decision_boundary(model=self, dataloader=data, S=10, title="Pretrained", temp = temp, predict_func='predict')
 
         # collect MAP estimate of weights
         self.collectWstar()
 
         for i, (Xtrain, ytrain) in enumerate(data):
+
+            self.y_correct = ytrain.item()
+
             # Clear gradients w.r.t. parameters
             optimizer.zero_grad()
 
@@ -277,10 +283,11 @@ class KFAC(Net):
         W = self.layers[Lambda + 1].weight.detach()  # ,torch.unsqueeze(self.layers[Lambda + 1].bias.detach(), 1)), 1)
         Wt = torch.transpose(W, 0, 1)
         D = self.compute_D(diff_, Lambda)
+
         # Lambda += 1
 
         self.H[Lambda] = (self.H[Lambda] * n + (matmul(B, matmul(Wt, matmul(
-            self.compute_H(Lambda=Lambda + 1, n=1), matmul(W, B)))) + D)) / (n + 1)
+            self.compute_H(Lambda=Lambda + 1, n=n), matmul(W, B)))) + D)) / (n + 1)
 
         return self.H[Lambda]
 
@@ -322,7 +329,11 @@ class KFAC(Net):
             H_inv = inverse(self.H[Lambda])
 
             # Sample
-            samples[Lambda] = matrix_normal.rvs(mean=self.W[Lambda], rowcov=H_inv, colcov=Q_inv, size=1)
+            try:
+                samples[Lambda] = matrix_normal.rvs(mean=self.W[Lambda], rowcov=H_inv, colcov=Q_inv, size=1)
+            except:
+                print('Linalg error')
+                return None
 
         return samples
 

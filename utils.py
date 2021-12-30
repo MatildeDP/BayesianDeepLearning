@@ -111,7 +111,7 @@ def compare_parameter_loss_plot(trainloss, testloss, param, num_epochs, save_pat
 
 
 
-def plot_decision_boundary(model, dataloader, S, temp, path_to_bma='', title="", predict_func = 'predict', save_image_path = "", criterion = nn.CrossEntropyLoss(), sample_new_weights = True):
+def plot_decision_boundary(model, dataloader, S, temp, text_string, path_to_bma='', title="", predict_func = 'predict', save_image_path = "", criterion = nn.CrossEntropyLoss(), sample_new_weights = True):
 
     """
     :param model: instance of class build on nn modules. Must have a predict functions
@@ -144,13 +144,13 @@ def plot_decision_boundary(model, dataloader, S, temp, path_to_bma='', title="",
     elif sample_new_weights and predict_func == 'stochastic':
 
         # Predict function value for grid
-            probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True, temp = temp, criterion = criterion)
+            probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32), ytest=0, S=S, C=2, forplot=True, temp = temp, criterion = criterion, l2 = 0)
 
     # load saved models
     elif not sample_new_weights and predict_func == 'stochastic':
         probs_grid = monte_carlo_bma(model, Xtest=torch.tensor(np.c_[xx.ravel(), yy.ravel()], dtype=torch.float32),
                                          ytest=0, S=S, C=2, forplot=True, temp=temp, criterion=criterion, save_models = '',
-                                        path_to_bma = path_to_bma)
+                                        path_to_bma = path_to_bma, l2 = 0)
 
 
 
@@ -158,20 +158,28 @@ def plot_decision_boundary(model, dataloader, S, temp, path_to_bma='', title="",
     probs0_grid = probs0_grid.reshape(xx.shape)
 
     # Plot the contour and test examples
-    contour = plt.contourf(xx, yy, probs0_grid, cmap='RdBu')
-    sns.scatterplot(x=X[:, 0], y=X[:, 1], hue=y, palette='RdBu')
-    ax = plt.colorbar(contour)
+    import matplotlib as mpl
+
+    contour = plt.contourf(xx, yy, probs0_grid, cmap='RdBu', levels =100)
+    sns.scatterplot(x=X[:, 0], y=X[:, 1], hue=y, palette='RdBu',alpha = 0.7)
+    ax = plt.colorbar(contour
+    )
+
     ax.set_label("$P(y = 1)$")
     ax.set_ticks([0, .25, .5, .75, 1])
     plt.xlabel = ("$X_1$")
     plt.ylabel = ("$X_2$")
+    box = dict(boxstyle='round', facecolor='black', alpha=0.5)
+    plt.text(1.3, -3,text_string, c = 'white', bbox=box, fontweight = 'medium')
     plt.title(title)
+
 
     #if save_image_path:
     plt.savefig(save_image_path)
-
-    #plt.show()
     plt.close()
+
+
+
 
 
 def Squared_matrix(D, is_diagonal = True):
@@ -208,4 +216,12 @@ def dump_to_existing_json(PATH, dict):
 
 
 
+def l2_penalizer(model):
+    s2 = 0
+    for val in model.state_dict().values():
+        if len(val.shape) > 1:
+            s2 += sum(sum(val ** 2))
+        else:
+            s2 += sum(val ** 2)
 
+    return s2

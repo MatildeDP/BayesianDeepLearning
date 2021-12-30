@@ -12,7 +12,7 @@ from KFAC import KFAC
 
 
 def run_swag(X_train, y_train, X_test, y_test, criterion, lr, idx_models, load_net_path, load_opti_path, info_PATH,
-              params, which_data, temp, path_to_bma, decision_path, loss_path, test_each_epoch=False):
+              params, which_data, temp, path_to_bma, decision_path, loss_path, save_probs_path, count, test_each_epoch=False):
     """
     :param X_train: Training data
     :param y_train: Training labels
@@ -62,18 +62,20 @@ def run_swag(X_train, y_train, X_test, y_test, criterion, lr, idx_models, load_n
 
 
     # Get train and test data
-    if which_data == 'two_moons':
-        pass
-    else:  # Standardise
+    if which_data == 'mnist' or which_data == 'emnist' or which_data == 'fashion':
         X_test = (X_test - torch.mean(X_test)) / torch.std(X_test)
         X_train = (X_train - torch.mean(X_train)) / torch.std(X_train)
 
+    elif which_data == 'cancer':
+        X_test = (X_test - torch.mean(X_test, dim = 0)) / torch.std(X_test, dim = 0)
+        X_train = (X_train - torch.mean(X_train, dim = 0)) / torch.std(X_train, dim = 0)
+
         # Torch dataloader instance
-    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_train, y_train),
+    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_train, y_train, which_data = which_data),
                                                batch_size=params['batch_size'],
                                                shuffle=False)
 
-    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test),
+    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test, which_data = which_data),
                                               batch_size=1000,
                                               shuffle=False)
 
@@ -95,31 +97,42 @@ def run_swag(X_train, y_train, X_test, y_test, criterion, lr, idx_models, load_n
 
     if test_each_epoch:
         # Initialise data container
-        evals = {'acc': [], 'train_loss': [], 'test_loss': []}
+        evals = {'acc': [], 'train_loss': [], 'test_loss': [], 'test_loss_l2':[],'train_loss_l2':[] }
         for i in range(params['n_epochs']):
-            if i % 100 == 0:
-                print("Epoch {}".format(i))
 
             # Train swag
-            n, train_Loss, optimizer, theta1, theta2 = model.train_swag(epoch=i, n=n, theta1=theta1, theta2=theta2,
+            n, train_Loss, optimizer, theta1, theta2, train_loss_l2_ave = model.train_swag(epoch=i, n=n, theta1=theta1, theta2=theta2,
                                                                         train_loader=train_loader,
                                                                         test_loader=test_loader, optimizer=optimizer)
+
+
+            # Collect average acc and loss per fold (overwrites previous model info)
+            evals['train_loss'].append(train_Loss)
+            evals['train_loss_l2'].append(train_loss_l2_ave.item())
+
+            print('Epoch: {}.......Train loss: {}.'.format(i, evals['train_loss'][-1]))
             # Test on trained model
             if i >= params['K']+1:
 
                 # do not save BMA models (save space)
                 if i < params['n_epochs']-1:
-                    p_yxw, p_yx, test_loss, acc = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
-                                                          C=output_dim, temp=temp, criterion= criterion)
+                    p_yxw, p_yx, test_loss, acc, test_loss_l2 = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
+                                                          C=output_dim, temp=temp, criterion= criterion, l2 = params['l2'])
+
 
                 # save BMA models if epoch is the last
                 else:
-                    p_yxw, p_yx, test_loss, acc = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
+                    p_yxw, p_yx, test_loss, acc, test_loss_l2 = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
                                                                   C=output_dim, temp=temp, criterion=criterion,
-                                                                  save_models = new_path_to_bma + '/')
+                                                                  save_models = new_path_to_bma + '/', save_probs=save_probs_path,
+                                                                                l2 = params['l2'])
+
                 # collect
                 evals['acc'].append(acc.item())
-                evals['test_loss'].append(sum(test_loss) / len(test_loss))
+                evals['test_loss'].append(test_loss)
+                evals['test_loss_l2'].append(test_loss)
+
+
 
                 print('Epoch: {} .......Test loss: {}.........Accuracy: {}.'.format(i, evals['test_loss'][-1],
                                                                                              evals['acc'][-1]))
@@ -127,36 +140,37 @@ def run_swag(X_train, y_train, X_test, y_test, criterion, lr, idx_models, load_n
                 # collect
                 evals['acc'].append(0)
                 evals['test_loss'].append(0)
+                evals['test_loss_l2'].append(0)
 
-
-            # Collect average acc and loss per fold (overwrites previous model info)
-            evals['train_loss'].append(train_Loss)
-            print('Epoch: {}.......Train loss: {}.'.format(i, evals['train_loss'][-1]))
 
         plot_acc_and_loss(testloss=evals['test_loss'], trainloss=evals['train_loss'], accuracy=evals['acc'],
                           save_path=loss_path)
 
     else:
         # Initialise data container
-        evals = {'acc': None, 'train_loss': [], 'test_loss': None}
+        evals = {'acc': None, 'train_loss': [], 'test_loss': None, 'test_loss_l2': None, 'train_loss_l2': None}
+
         for i in range(params['n_epochs']):
             if i % 100 == 0:
                 print("Epoch {}".format(i))
 
             # Train swag
-            n, train_Loss, optimizer, theta1, theta2 = model.train_swag(epoch=i, n=n, theta1=theta1, theta2=theta2,
+            n, train_Loss, optimizer, theta1, theta2,  train_loss_l2= model.train_swag(epoch=i, n=n, theta1=theta1, theta2=theta2,
                                                                         train_loader=train_loader,
                                                                         test_loader=test_loader, optimizer=optimizer)
             evals['train_loss'].append(train_Loss)
+            evals['train_loss_l2'].append(train_loss_l2)
+
 
         # Test on trained model
-        p_yxw, p_yx, test_loss, acc = monte_carlo_bma(model=model, S=model.S, Xtest=X_test, ytest=y_test,
+        p_yxw, p_yx, test_loss, acc, test_loss_l2 = monte_carlo_bma(model=model, S=model.S, Xtest=X_test, ytest=y_test,
                                                       C=output_dim, temp=temp,criterion = criterion,
-                                                      save_models=new_path_to_bma+ '/')
+                                                      save_models=new_path_to_bma+ '/', save_probs = save_probs_path, l2 = params['l2'])
 
         # Collect average acc and loss per fold (overwrites previous model info)
-        evals['test_loss'] = sum(test_loss) / len(test_loss)
+        evals['test_loss'] = test_loss
         evals['acc'] = acc.item()
+        evals['test_loss_l2']= test_loss_l2
 
         print('.......Train loss: {}.      Test loss: {}       Accuracy: {}.'.format(evals['train_loss'][-1],
                                                                                      evals['test_loss'], evals['acc']))
@@ -175,17 +189,33 @@ def run_swag(X_train, y_train, X_test, y_test, criterion, lr, idx_models, load_n
     params_temp = params.copy()
     params_temp['batch_size'] = str(params['batch_size'])  # stringify
     params_temp['hidden_dim'] = str(params['hidden_dim'])  # stringify
-    if idx_models == 0:  # create json files if model is the first
+    params_temp['lr'] = lr
+    params_temp['temp'] = temp
+    if idx_models == 0:# and count ==0:  # create json files if model is the first
         model_ = {idx_models: {'params': params_temp, 'evals:': evals}}
         dump_to_json(info_PATH, model_)
-    else:  # dump to existing
+
+    else: # dump to existing
         model_ = {idx_models: {'params': params_temp, 'evals:': evals}}
         dump_to_existing_json(info_PATH, model_)
+    #elif count == 0:
+    #    model_ = {count: {'params': params_temp, 'evals:': evals}}
+    #    dump_to_json(info_PATH, model_)
+
+    #elif idx_models != 0 and count == 0:  # dump to existing
+       # model_ = {idx_models: {'params': params_temp, 'evals:': evals}}
+      #  dump_to_existing_json(info_PATH, model_)
+
+    #elif count != 0:  # dump to existing
+    #    model_ = {count: {'params': params_temp, 'evals:': evals}}
+    #    dump_to_existing_json(info_PATH, model_)
+
 
 
 def train_deterministic(which_data: str, net_path: str, opti_path: str, infoPATH: str, param_space: dict,
                         temp, X_train, y_train, X_test, y_test, decision_path,loss_path, idx_model,
                         test_each_epoch = False):
+
 
     # set seed
     torch.manual_seed(param_space['seed'])
@@ -193,12 +223,20 @@ def train_deterministic(which_data: str, net_path: str, opti_path: str, infoPATH
     # get dims
     input_dim, output_dim = settings(which_data)
 
+    if which_data == 'mnist' or which_data == 'emnist' or which_data == 'fashion':
+        X_test = (X_test - torch.mean(X_test)) / torch.std(X_test)
+        X_train = (X_train - torch.mean(X_train)) / torch.std(X_train)
 
-    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_train, y_train),
+    elif which_data == 'cancer':
+        X_test = (X_test - torch.mean(X_test, dim = 0)) / torch.std(X_test, dim = 0)
+        X_train = (X_train - torch.mean(X_train, dim = 0)) / torch.std(X_train, dim = 0)
+
+
+    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_train, y_train, which_data = which_data),
                                                batch_size=param_space['batch_size'],
                                                shuffle=False)
 
-    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test),
+    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test, which_data = which_data),
                                               batch_size=1000,
                                               shuffle=False)
 
@@ -213,19 +251,22 @@ def train_deterministic(which_data: str, net_path: str, opti_path: str, infoPATH
 
 
     if test_each_epoch:
-        evals = {'acc': [], 'train_loss': [], 'test_loss': []}
+        evals = {'acc': [], 'train_loss': [], 'test_loss': [], 'test_loss_l2':[],'train_loss_l2':[] }
         for epoch in range(param_space['n_epochs']):
+            print("Epoch {}".format(epoch))
 
             # One epoch of training
-            optimizer, train_loss_ = model.train_net(train_loader, optimizer, criterion, save_net=False)
+            optimizer, train_loss_, train_loss_l2 = model.train_net(train_loader, optimizer, criterion,l2 =param_space['l2'], save_net=False)
 
             # Test
-            accuracy, tst_loss, _ = model.test_net(test_loader = test_loader, criterion = criterion, temp = temp, freq=0)
+            accuracy, tst_loss, _, test_loss_l2= model.test_net(test_loader = test_loader, criterion = criterion,l2 =param_space['l2'], temp = temp, freq=0)
 
             # Collect loss
             evals['train_loss'].append(float(train_loss_))
             evals['test_loss'].append(float(tst_loss.detach().numpy()))
             evals['acc'].append(accuracy.item())
+            evals['test_loss_l2'].append(test_loss_l2)
+            evals['train_loss_l2'].append(train_loss_l2)
 
         # save models and optimizers
         torch.save(model.state_dict(), net_path)
@@ -235,26 +276,28 @@ def train_deterministic(which_data: str, net_path: str, opti_path: str, infoPATH
                                                                                           evals['train_loss'][-1], evals['acc'][-1]))
 
     else:
-        evals = {'acc': None, 'train_loss': None, 'test_loss': None}
+        evals = {'acc': None, 'train_loss': None, 'test_loss': None, 'train_loss_l2':None, 'test_loss_l2':None}
         for epoch in range(param_space['n_epochs']):
 
             # One epoch of training
-            optimizer, train_loss_ = model.train_net(train_loader = train_loader, optimizer = optimizer,
+            optimizer, train_loss_, train_loss_l2 = model.train_net(train_loader = train_loader, optimizer = optimizer,
                                                      criterion = criterion, save_net=False,
-                                                     net_path=net_path, opti_path=opti_path)
+                                                     net_path=net_path, opti_path=opti_path, l2 =param_space['l2'])
 
             evals['train_loss'] = float(train_loss_)
+            evals['train_loss_l2'] = train_loss_l2
 
         # save models and optimizers
         torch.save(model.state_dict(), net_path)
         torch.save(optimizer.state_dict(), opti_path)
 
         # Test
-        accuracy, tst_loss, _ = model.test_net(test_loader=test_loader, criterion=criterion,
-                                               freq=30, temp = temp)
+        accuracy, tst_loss, _, test_loss_l2 = model.test_net(test_loader=test_loader, criterion=criterion,
+                                               freq=30, temp = temp,l2 =param_space['l2'])
 
         evals['test_loss'] = float(tst_loss.detach().numpy())
         evals['acc'] = accuracy.item()
+        evals['test_loss_l2'] = test_loss_l2.item()
 
         print('After {} epochs......Test Loss: {}. Train Loss: {}. Accuracy: {}'.format(param_space['n_epochs'], evals['test_loss'],
                                                                                           evals['train_loss'], evals['acc']))
@@ -273,6 +316,7 @@ def train_deterministic(which_data: str, net_path: str, opti_path: str, infoPATH
     params_temp = param_space.copy()
     params_temp['batch_size'] = str(param_space['batch_size'])  # stringify
     params_temp['hidden_dim'] = str(param_space['hidden_dim'])  # stringify
+    params_temp['temp'] = temp
     if idx_model == 0:  # create json files if model is the first
         model_ = {idx_model: {'params': params_temp, 'evals:': evals}}
         dump_to_json(infoPATH, model_)
@@ -285,7 +329,7 @@ def train_deterministic(which_data: str, net_path: str, opti_path: str, infoPATH
 
 
 def run_kfac(tau, params, load_net_path, load_opti_path, X_train, y_train, X_test, y_test, criterion, which_data,
-            loss_path, decision_path, path_to_bma, idx_model, test_each_epoch, N, temp, info_PATH):
+            loss_path, decision_path, path_to_bma, idx_model, test_each_epoch, N, temp, info_PATH, save_probs_path, count):
 
     """
     :param criterion: cross entropy loss
@@ -339,78 +383,51 @@ def run_kfac(tau, params, load_net_path, load_opti_path, X_train, y_train, X_tes
         params['batch_size'],tau, params['S']))
 
     # Get train and test data
-    if which_data == 'two_moons':
-        pass
-    else:  # Standardise
+    if which_data == 'mnist' or which_data == 'emnist' or which_data == 'fashion':
         X_test = (X_test - torch.mean(X_test)) / torch.std(X_test)
-        X_train = (X_train - torch.mean(X_train)) / torch.std(X_train)
+        #X_train = (X_train - torch.mean(X_train)) / torch.std(X_train)
 
-     # Torch dataloader instance
-    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_train, y_train),
-                                               batch_size=params['batch_size'],
-                                               shuffle=False)
+    elif which_data == 'cancer':
+        X_test = (X_test - torch.mean(X_test, dim = 0)) / torch.std(X_test, dim = 0)
+       # X_train = (X_train - torch.mean(X_train, dim = 0)) / torch.std(X_train, dim = 0)
 
-    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test),
-                                              batch_size=1000,
+
+
+    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test, which_data = which_data),
+                                              batch_size=1,
                                               shuffle=False)
 
 
-    if test_each_epoch:
-        # Initialise data container
-        evals = {'acc': [], 'train_loss': None, 'test_loss': []}
-        for i in range(params['n_epochs']):
-            if i % 100 == 0:
-                print("Epoch {}".format(i))
 
-            # Create distribution
-            train_loss = model.collect_values(train_loader, optimizer, criterion, temp)
-            model.regularize_and_add_prior(tau=tau, N=N)
+    # Initialise data container
+    evals = {'acc': [], 'train_loss': None, 'test_loss': [], 'test_loss_l2':[]}
 
-            # Test KFAC
-            # do not save BMA models (save space)
-            if i < params['n_epochs']-2:
-                p_yxw, p_yx, test_loss, acc = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
-                                                              C=output_dim, temp=temp, criterion = criterion)
-            else:
-                p_yxw, p_yx, test_loss, acc = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
-                                                              C=output_dim, temp=temp, criterion=criterion,
-                                                              save_models = new_path_to_bma + '/')
+    # Create distribution
+    train_loss = model.collect_values(test_loader, optimizer, criterion, temp)
+    model.regularize_and_add_prior(tau=tau, N=N)
 
-            # Collect average acc and loss per fold (overwrites previous model info)
-            evals['test_loss'].append(sum(test_loss) / len(test_loss))
-            evals['acc'].append(acc.item())
-            evals['train_loss'] = train_loss
-
-            print('.......Test loss: {}       Accuracy: {}.'.format(evals['test_loss'][-1],evals['acc'][-1]))
-
-        #plot_acc_and_loss(testloss=evals['test_loss'], trainloss=evals['train_loss'], accuracy=evals['acc'],
-                         # save_path=loss_path)
-
-    else:
-        # Initialise data container
-        evals = {'acc': None, 'train_loss': None, 'test_loss': None}
-
-        for i in range(params['n_epochs']):
-
-            if i % 100 == 0:
-                print("Epoch {}".format(i))
-
-                # Create distribution
-            train_loss = model.collect_values(train_loader, optimizer, criterion, temp)
-            model.regularize_and_add_prior(tau=tau, N=N)
-
-
-        # Test KFAC
-        p_yxw, p_yx, test_loss, acc = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
+    # Test KFAC and save models
+    p_yxw, p_yx, test_loss, acc, test_loss_l2 = monte_carlo_bma(model=model, S=params['S'], Xtest=X_test, ytest=y_test,
                                                       C=output_dim, temp=temp, criterion=criterion,
-                                                      save_models=new_path_to_bma + '/')  # save test models each epoch
+                                                      save_models = new_path_to_bma + '/', save_probs = save_probs_path, l2  = params['l2'])
 
-        # Collect average acc and loss per fold (overwrites previous model info)
-        evals['test_loss'] = sum(test_loss) / len(test_loss)
-        evals['acc'] = acc.item()
-        evals['train_loss'] = train_loss
+    if p_yxw == None:
+        return
 
-        print('.......Test loss: {}       Accuracy: {}.'.format(evals['test_loss'],evals['acc']))
+
+    # Collect average acc and loss per fold (overwrites previous model info)
+    evals['test_loss'] = test_loss
+    evals['acc'] = acc.item()
+    evals['train_loss'] = train_loss
+    evals['test_loss_l2']= test_loss_l2
+
+
+    print('.......Test loss: {}       Accuracy: {}.'.format(evals['test_loss'],evals['acc']))
+
+    #plot_acc_and_loss(testloss=evals['test_loss'], trainloss=evals['train_loss'], accuracy=evals['acc'],
+                     # save_path=loss_path)
+
+
 
     if which_data == 'two_moons':
         plot_decision_boundary(model, test_loader, S=params['S'],
@@ -425,13 +442,15 @@ def run_kfac(tau, params, load_net_path, load_opti_path, X_train, y_train, X_tes
     params_temp = params.copy()
     params_temp['batch_size'] = str(params['batch_size'])  # stringify
     params_temp['hidden_dim'] = str(params['hidden_dim'])  # stringify
-    if idx_model == 0:  # create json files if model is the first
+    params_temp['tau'] = tau
+    params_temp['temp'] = temp
+
+
+    if idx_model == 0:  # and count ==0:  # create json files if model is the first
         model_ = {idx_model: {'params': params_temp, 'evals:': evals}}
         dump_to_json(info_PATH, model_)
+
     else:  # dump to existing
         model_ = {idx_model: {'params': params_temp, 'evals:': evals}}
         dump_to_existing_json(info_PATH, model_)
-
-
-
 

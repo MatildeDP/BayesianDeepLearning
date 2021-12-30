@@ -7,7 +7,7 @@ from utils import dump_to_json, dump_to_existing_json, plot_decision_boundary, p
 from os.path import exists
 import GPyOpt
 import numpy as np
-from datetime import datetime
+
 
 
 def Loss(X_train, y_train, X_test, y_test, which_data, params, model, optimizer, test_each_epoch = False):
@@ -16,30 +16,35 @@ def Loss(X_train, y_train, X_test, y_test, which_data, params, model, optimizer,
     criterion = nn.CrossEntropyLoss()
 
     # Standardise
-    if which_data == 'mnist':
+    if which_data == 'mnist' or which_data == 'emnist' or which_data == 'fashion':
         X_test = (X_test - torch.mean(X_test)) / torch.std(X_test)
         X_train = (X_train - torch.mean(X_train)) / torch.std(X_train)
 
+    elif which_data == 'cancer':
+        X_test = (X_test - torch.mean(X_test, dim = 0)) / torch.std(X_test, dim = 0)
+        X_train = (X_train - torch.mean(X_train, dim = 0)) / torch.std(X_train, dim = 0)
+
+
     # Torch dataloader instance
-    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_train, y_train),
+    train_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_train, y_train, which_data = which_data),
                                                batch_size=params['batch_size'],
                                                shuffle=False)
 
-    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test),
+    test_loader = torch.utils.data.DataLoader(dataset=DataLoaderInput(X_test, y_test, which_data = which_data),
                                               batch_size=1000,
                                               shuffle=False)
 
     # Epoch loop
     if test_each_epoch:
         # Initialise data container
-        evals = {'acc': [], 'train_loss': [], 'test_loss': []}
-        for epoch in range(100):
+        evals = {'acc': [], 'train_loss': [], 'test_loss': [], 'test_loss_l2':[],'train_loss_l2':[] }
+        for epoch in range(n_epochs):
             if epoch % 50 == 0:
                 print("Epoch {}".format(epoch))
 
             # One epoch of training
-            optimizer, ave_train_loss = model.train_net(train_loader, optimizer, criterion,
-                                                        save_net=False)
+            optimizer, ave_train_loss,  ave_train_loss_l2 = model.train_net(train_loader, optimizer, criterion,
+                                                        save_net=False, l2 = params['l2'])
 
 
             # Collect train loss for each epoch
@@ -47,10 +52,13 @@ def Loss(X_train, y_train, X_test, y_test, which_data, params, model, optimizer,
 
 
             # Test on trained model
-            accuracy, ave_test_loss, _ = model.test_net(test_loader=test_loader, criterion=criterion,
-                                                        freq=30, temp = 1)
+
+            accuracy, ave_test_loss, _, ave_test_loss_l2= model.test_net(test_loader=test_loader, criterion=criterion,
+                                                        freq=30, temp = 1, l2 = params['l2'])
             evals['test_loss'].append(ave_test_loss.item())
             evals['acc'].append(accuracy.item())
+            evals['test_loss_l2'].append(ave_test_loss_l2)
+            evals['train_loss_l2'].append(ave_train_loss_l2)
 
         print('.......Train loss: {}.      Test loss: {}       Accuracy: {}.'.format(evals['train_loss'][-1],
                                                                                      evals['test_loss'][-1],
@@ -72,18 +80,19 @@ def Loss(X_train, y_train, X_test, y_test, which_data, params, model, optimizer,
 
     else:
         # Initialise data container
-        evals = {'acc': None, 'train_loss': [], 'test_loss': None}
+        evals = {'acc': None, 'train_loss': None, 'test_loss': None, 'train_loss_l2':None, 'test_loss_l2':None}
 
-        for epoch in range(100):
+        for epoch in range(n_epochs):
             if epoch % 50 == 0:
                 print("Epoch {}".format(epoch))
 
             # One epoch of training
-            optimizer, ave_train_loss = model.train_net(train_loader, optimizer, criterion,
-                                                        save_net=False)
+            optimizer, ave_train_loss, ave_train_loss_l2 = model.train_net(train_loader, optimizer, criterion,
+                                                        save_net=False, l2 =params['l2'])
 
             # Collect train loss for each epoch
             evals['train_loss'].append(ave_train_loss)
+            evals['train_loss_l2'] = (ave_train_loss_l2)
 
         # save model in each epoch (makes it possible to recreate evaluations)
         net_path = 'Deterministic/' + which_data.lower() + '/bo/models/m_' + counter.__getitem__(
@@ -95,10 +104,12 @@ def Loss(X_train, y_train, X_test, y_test, which_data, params, model, optimizer,
 
 
         # Test on trained model
-        accuracy, ave_test_loss, _ = model.test_net(test_loader=test_loader, criterion=criterion,
-                                                    freq=30)
+        accuracy, ave_test_loss, _, ave_test_loss_l2 = model.test_net(test_loader=test_loader, criterion=criterion,
+                                                    freq=30, l2=params['l2'])
         evals['test_loss'] = ave_test_loss.item()
         evals['acc'] = accuracy.item()
+        evals['test_loss_l2'] =(ave_test_loss_l2)
+
 
 
         print('.......Train loss: {}.      Test loss: {}       Accuracy: {}.'.format(evals['train_loss'][-1],
@@ -182,28 +193,35 @@ def objective_function(x):
 
 
 if __name__ == '__main__':
+
     global counter
     counter = iter()
 
     global which_data
-    which_data = 'two_moons'
+    which_data = 'mnist'
+
+    global n_epochs
+    n_epochs = 300
 
 
 
     Data = LoadDataSet(which_data)
     X, y, X_val, y_val = Data.load_data_for_CV(n_samples = 2000, noise = 0.3)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0, stratify=y)
 
-    if which_data == 'two_moons':
-        batch_size = (8, 16, 32, 64)
+    if which_data == 'two_moons' or which_data == 'cancer':
+        batch_size = (16, 32, 64)
         hidden_dim = range(50, 200)
-    else:
-        batch_size = (32, 64, 128, 256)
-        hidden_dim = range(100, 300)
+        max_t = 100 # 6 hours + 5 samples
+    elif which_data == 'mnist' or which_data == 'emnist' or which_data == 'fashion':
+        batch_size = (128, 256)
+        hidden_dim = range(150, 300)
+        max_t = 40  # 20 hours + 5 samples
+
 
     lr_range = tuple([i.item() for i in torch.logspace(-4, -2, 30)])
     l2_range = tuple([i.item() for i in torch.logspace(-4, -2, 30)])
-    momentum_range = tuple([i.item() for i in torch.logspace(-2, -0.1, 30)])
+    momentum_range = tuple([i.item() for i in torch.logspace(-3, -0.1, 30)])
 
 
     domain = [{'name': 'lr', 'type': 'discrete', 'domain': lr_range}, #torch.logspace(-4, -1, 200)
@@ -213,21 +231,29 @@ if __name__ == '__main__':
               {'name': 'hidden_dime', 'type': 'discrete', 'domain': hidden_dim}]
               #{'name': 'n_epochs', 'type': 'discrete', 'domain': range(100, 500)}]
 
+
     opt = GPyOpt.methods.BayesianOptimization(f=objective_function,  # function to optimize
                                               domain=domain,  # box-constrains of the problem
                                               acquisition_type='EI',  # Select acquisition function MPI, EI, LCB
                                               )
-    # define exploration
-    #opt.acquisition.exploration_weight = 0.5
 
-    opt.run_optimization(max_iter = 5,report_file = 'Deterministic/'+which_data+'/bo/txt/report_file.txt', evaluations_file = 'Deterministic/'+which_data+'/bo/txt/eval_file.txt', models_file='Deterministic/'+which_data+'/bo/txt/model_file.txt')
+
+
+    opt.run_optimization(max_iter=max_t, report_file = 'Deterministic/'+which_data+'/bo/txt/report_file.txt', evaluations_file = 'Deterministic/'+which_data+'/bo/txt/eval_file.txt', models_file='Deterministic/'+which_data+'/bo/txt/model_file.txt')
+
+    from importlib import reload
+    import matplotlib.pyplot as plt
+    reload(plt)
+    opt.plot_convergence("Deterministic/" + which_data + "/bo/bo_convergence_test.png")
+
 
 
     x_best = opt.X[np.argmin(opt.Y)]
     print('Optimal parameters {}:'.format(x_best))
-    print('Optimal test nll'.format(opt.Y))
+    print('Optimal test nll {}'.format(opt.Y))
 
     # GP parameter name and values. This is also what we save in model_file
     print(opt.model.get_model_parameters_names())
     print(opt.model.get_model_parameters())
+
 

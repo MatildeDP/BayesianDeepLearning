@@ -1,17 +1,18 @@
 from utils import plot_decision_boundary
 import torch
 from NN import Net
-
+from utils import l2_penalizer
 
 class Deterministic_net(Net):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super().__init__(input_dim, hidden_dim, output_dim)
 
 
-    def train_net(self, train_loader, optimizer, criterion, save_net = True, net_path = '', opti_path = ''):
-        loss_ave = 0
+    def train_net(self, train_loader, optimizer, criterion,l2, save_net = True, net_path = '', opti_path = ''):
+        loss_ave,loss_l2_ave = 0,0
 
         for i, (Xtrain, ytrain) in enumerate(train_loader):
+
 
             # Clear gradients w.r.t. parameters
             optimizer.zero_grad()
@@ -22,6 +23,9 @@ class Deterministic_net(Net):
             # Calculate Loss: softmax --> cross entropy loss
             loss = criterion(outputs, ytrain)
             loss_ave = (loss_ave * i + loss.item()) / (i + 1)
+
+            loss_l2 = l2_penalizer(self)*l2 + loss
+            loss_l2_ave = (loss_l2_ave * i + loss_l2) / (i + 1)
 
             # Getting gradients w.r.t. parameters
             loss.backward()
@@ -34,9 +38,9 @@ class Deterministic_net(Net):
             torch.save(optimizer.state_dict(), opti_path)
 
 
-        return optimizer, loss_ave
+        return optimizer, loss_ave, loss_l2_ave.item()
 
-    def test_net(self, test_loader, criterion, temp, freq=0, epoch='', plot=False):
+    def test_net(self, test_loader, criterion, temp, l2, freq=0, epoch='', plot=False, test = False):
 
         """
         :param test_loader: test data in toech dataloader structure
@@ -47,19 +51,25 @@ class Deterministic_net(Net):
         :param plot: whether to plot or not (bool)
         :return:
         """
-        loss_ave, accuracy = 0, 0
+        loss_ave, accuracy,loss_l2_ave = 0, 0, 0
         all_probs = []
+        all_loss = []
 
         # Iterate through test dataset
         with torch.no_grad():
             for j, (Xtest, ytest) in enumerate(test_loader):
+
 
                 probs, score, pred = self.predict(Xtest.float(), temp=temp)
                 all_probs.append(probs)
 
                 # Loss
                 loss = criterion(score, ytest)
+                all_loss.append(loss.item())
                 loss_ave = (loss_ave * j + loss) / (j + 1)
+
+                loss_l2 = l2_penalizer(self)*l2 + loss
+                loss_l2_ave = (loss_l2_ave * j + loss_l2) / (j + 1)
 
                 # Accuracy
                 correct = (pred == ytest).sum() / len(ytest)
@@ -76,4 +86,9 @@ class Deterministic_net(Net):
 
             all_probs = torch.cat(all_probs, dim=0)
 
-        return accuracy, loss_ave, all_probs
+        if test == True:
+            return accuracy, loss_ave, all_probs, loss_l2_ave.item(), all_loss
+        else:
+            return accuracy, loss_ave, all_probs, loss_l2_ave.item()
+
+

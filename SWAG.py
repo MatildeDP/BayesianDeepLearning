@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from NN import Net
-from utils import plot_decision_boundary, Squared_matrix
+from utils import plot_decision_boundary, Squared_matrix, l2_penalizer
 from torch.distributions.multivariate_normal import MultivariateNormal
 from BMA import monte_carlo_bma
 import numpy as np
@@ -24,7 +24,6 @@ class Swag(Net):
 
         self.K = int(K)
         self.p = sum(p.numel() for p in self.parameters())
-        self.c = c
         self.S = S
 
         self.criterion = criterion
@@ -67,8 +66,11 @@ class Swag(Net):
                  theta2: Updated second moment
                  loss_ave: Train loss for epoch, averaged over batches
         """
-        loss_ave = 0
+        loss_ave, loss_l2_ave = 0, 0
+        #rule = [int((len(train_loader.dataset.y)/train_loader.batch_size)//i) for i in range(1,5)]
         for j, (Xtrain, ytrain) in enumerate(train_loader):
+
+
             # Clear gradients w.r.t. parameters
             optimizer.zero_grad()
 
@@ -80,35 +82,38 @@ class Swag(Net):
             loss.backward()  # Gradients
             optimizer.step()  # Update parameters
 
+            loss_l2 = l2_penalizer(self)*self.l2_param + loss.item()
+
             # Update loss average
             loss_ave = (loss_ave * j + loss.item()) / (j + 1)
+            loss_l2_ave = (loss_l2_ave * j + loss_l2) / (j + 1)
             #if j == 0:
             #    print("Running loss average: %s" %loss_ave)
 
         # Update moments with frequency c
-        if epoch % self.c == 0 and epoch != 0:
+            if j == int((len(train_loader.dataset.y)/train_loader.batch_size)//2):
 
-            with torch.no_grad():
+                with torch.no_grad():
 
-                # Update n
-                n += 1
+                    # Update n
+                    n += 1
 
-                # Get ith moment
-                theta1_i, theta2_i = self.get_ith_moments()
+                    # Get ith moment
+                    theta1_i, theta2_i = self.get_ith_moments()
 
-                # Update first moment
-                temp1 = update_running_moment(theta=theta1, theta_i=theta1_i, n=n)
-                theta1 = temp1
+                    # Update first moment
+                    temp1 = update_running_moment(theta=theta1, theta_i=theta1_i, n=n)
+                    theta1 = temp1
 
-                # Update second moment
-                temp2 = update_running_moment(theta=theta2, theta_i=theta2_i, n=n)
-                theta2 = temp2
+                    # Update second moment
+                    temp2 = update_running_moment(theta=theta2, theta_i=theta2_i, n=n)
+                    theta2 = temp2
 
-                # Update D_hat
-                self.updateD(theta1_i, theta1)
+                    # Update D_hat
+                    self.updateD(theta1_i, theta1)
 
-            self.theta_swa = theta1.clone().detach()
-            self.sigma_vec = theta2 - theta1 ** 2
+                self.theta_swa = theta1.clone().detach()
+                self.sigma_vec = theta2 - theta1 ** 2
 
         #  Plot every 100th epoch
         #if epoch % 200 == 0 and len(self.D_hat) == self.K:
@@ -116,7 +121,7 @@ class Swag(Net):
 
 
            # plot_decision_boundary(model=self, dataloader = test_loader, title ='%s' %epoch, predict_func='stochastic', S = 10, temp = 1)
-        return n, loss_ave, optimizer, theta1, theta2
+        return n, loss_ave, optimizer, theta1, theta2, loss_l2_ave
 
     def sample_from_posterior(self):
         """

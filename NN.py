@@ -13,7 +13,7 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, output_dim)
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.1)
         self.s = nn.Softmax(dim=1)
 
 
@@ -31,6 +31,7 @@ class Net(nn.Module):
         #x = self.dropout(x)
         x = self.relu(x)
         x = self.fc3(x)
+
 
         return x
 
